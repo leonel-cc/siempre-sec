@@ -4,9 +4,15 @@
 
 # RTSP server
 rtsp: yes
-protocols: [rtsp, rtmp, hls]
+protocols: [udp, multicast, tcp]
 rtspAddress: :8554
+
+# RTMP server
+rtmp: yes
 rtmpAddress: :1935
+
+# HLS server
+hls: yes
 hlsAddress: :8888
 
 # API (used by backend health check)
@@ -17,18 +23,17 @@ apiAddress: :9997
 logLevel: info
 logDestinations: [stdout]
 
+# Open authentication for local use
+authInternalUsers:
+  - user: any
+    ips: [0.0.0.0/0, ::/0]
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+
 # Paths - cameras are added dynamically
 paths:
   all_others:
-    source: publisher
-    readUser: ""
-    readPass: ""
-    writeUser: ""
-    writePass: ""
 
   camera_sim:
-    source: publisher
-    readUser: ""
-    readPass: ""
-    writeUser: ""
-    writePass: ""

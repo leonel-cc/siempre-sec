@@ -61,6 +61,23 @@ export class AiClientService {
     });
   }
 
+  async listUsbDevices() {
+    return this.request<{ devices: Array<{ index: number; name: string }>; count: number }>(
+      '/devices/usb',
+    );
+  }
+
+  async addUsbSource(sourceId: string, deviceIndex: number, targetFps = 25) {
+    return this.request(`/sources/usb`, {
+      method: 'POST',
+      body: JSON.stringify({
+        source_id: sourceId,
+        device_index: deviceIndex,
+        target_fps: targetFps,
+      }),
+    });
+  }
+
   async removeSource(sourceId: string) {
     return this.request(`/sources/${sourceId}`, { method: 'DELETE' });
   }

@@ -1,5 +1,6 @@
 import subprocess
 import os
+import sys
 import signal
 import threading
 from typing import Optional
@@ -12,20 +13,29 @@ class FFmpegProcess:
 
     def start_rtsp_server(self, config_path: str = None) -> bool:
         if config_path is None:
-            config_path = os.path.join(
-                os.path.dirname(__file__), '..', '..', 'services', 'media', 'mediamtx.yml'
-            )
+            if getattr(sys, 'frozen', False):
+                base = os.path.dirname(sys.executable)
+                candidates = [
+                    os.path.join(base, 'mediamtx.yml'),
+                    os.path.join(os.path.dirname(base), 'mediamtx', 'mediamtx.yml'),
+                ]
+                config_path = next((c for c in candidates if os.path.exists(c)), candidates[0])
+            else:
+                config_path = os.path.join(
+                    os.path.dirname(__file__), '..', '..', 'services', 'media', 'mediamtx.yml'
+                )
         config_path = os.path.abspath(config_path)
+        mediamtx_bin = os.environ.get('MEDIAMTX_PATH', 'mediamtx')
 
         try:
             self._process = subprocess.Popen(
-                ['mediamtx', config_path],
+                [mediamtx_bin, config_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             return True
         except FileNotFoundError:
-            print("MediaMTX not found in PATH. Install from: https://github.com/bluenviron/mediamtx")
+            print("MediaMTX not found. Set MEDIAMTX_PATH or install from: https://github.com/bluenviron/mediamtx")
             return False
 
     def stop(self):
@@ -43,6 +53,10 @@ class FFmpegProcess:
         return self._process is not None and self._process.poll() is None
 
 
+def _ffmpeg_bin() -> str:
+    return os.environ.get('FFMPEG_PATH', 'ffmpeg')
+
+
 class FFmpegTranscoder:
     def __init__(self):
         self._processes = {}
@@ -50,7 +64,7 @@ class FFmpegTranscoder:
     def transcode_rtsp_to_hls(self, input_url: str, output_path: str,
                                callback=None) -> subprocess.Popen:
         cmd = [
-            'ffmpeg', '-i', input_url,
+            _ffmpeg_bin(), '-i', input_url,
             '-c:v', 'libx264', '-preset', 'ultrafast',
             '-c:a', 'aac',
             '-f', 'hls',
@@ -64,7 +78,7 @@ class FFmpegTranscoder:
 
     def capture_frames(self, input_url: str, callback, max_frames: int = 0):
         cmd = [
-            'ffmpeg', '-i', input_url,
+            _ffmpeg_bin(), '-i', input_url,
             '-f', 'rawvideo', '-pix_fmt', 'bgr24',
             '-vf', 'fps=10',
             '-',
@@ -96,7 +110,7 @@ class FFmpegTranscoder:
 
 def check_ffmpeg() -> bool:
     try:
-        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, timeout=5)
+        result = subprocess.run([_ffmpeg_bin(), '-version'], capture_output=True, timeout=5)
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -104,7 +118,8 @@ def check_ffmpeg() -> bool:
 
 def check_mediamtx() -> bool:
     try:
-        result = subprocess.run(['mediamtx', '--version'], capture_output=True, timeout=5)
+        mediamtx_bin = os.environ.get('MEDIAMTX_PATH', 'mediamtx')
+        result = subprocess.run([mediamtx_bin, '--version'], capture_output=True, timeout=5)
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False

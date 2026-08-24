@@ -1,77 +1,96 @@
 @echo off
+setlocal enabledelayedexpansion
 title Building Security AI Installer
 
-:: Set paths
-set "SOURCES=%~dp0..\apps\desktop\release\win-unpacked"
-set "OUTPUT=%~dp0..\apps\desktop\release\Security AI Setup 0.1.0.exe"
-set "STAGING=%~dp0staging"
-set "IEXPRESS=%SystemRoot%\System32\iexpress.exe"
+:: ============================================================
+:: Security AI - Full Installer Build Orchestrator
+::
+:: Produces a single NSIS installer containing:
+::   - Electron desktop app (UI + supervisor)
+::   - NestJS backend (standalone, runs via Electron as Node)
+::   - Python AI service frozen with PyInstaller
+::   - MediaMTX + FFmpeg portable binaries
+::
+:: Output: apps\desktop\release\"Security AI Setup 0.1.0.exe"
+::
+:: Prerequisites: Node.js 20+, Python 3.11+, internet access,
+::                MSVC build tools (for insightface compile).
+:: ============================================================
 
-:: Verify source exists
-if not exist "%SOURCES%\Security AI.exe" (
-    echo ERROR: win-unpacked not found at %SOURCES%
-    echo Run the build first: cd apps\desktop ^&^& npx electron-builder --win dir --x64
-    pause
-    exit /b 1
+set "ROOT=%~dp0.."
+set "DESKTOP=%ROOT%\apps\desktop"
+set "RELEASE_DIR=%DESKTOP%\release"
+
+echo.
+echo ========================================
+echo   Security AI - Installer Build
+echo ========================================
+echo.
+
+:: ---- 1. Verify prerequisites -------------------------------------------
+where node >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Node.js not found on PATH. Install Node.js 20+ first.
+    pause & exit /b 1
 )
 
-echo Creating staging directory...
-if exist "%STAGING%" rmdir /s /q "%STAGING%"
-mkdir "%STAGING%"
-mkdir "%STAGING%\files"
+py -3.11 --version >nul 2>&1
+if not errorlevel 1 set "PYTHON_OK=1"
+py -3.12 --version >nul 2>&1
+if not errorlevel 1 set "PYTHON_OK=1"
 
-echo Copying application files...
-xcopy "%SOURCES%\*" "%STAGING%\files\" /E /I /Y /Q
+if not defined PYTHON_OK (
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo ERROR: Python 3.11/3.12 not found. Install it from python.org
+        echo        and enable the py launcher.
+        pause & exit /b 1
+    )
+)
+echo Prerequisites OK ^(Node found, Python found^).
 
-echo Copying installer script...
-copy "%~dp0install.bat" "%STAGING%\files\install.bat" /Y
+:: ---- 2. Install workspace dependencies ----------------------------------
+echo.
+echo [1/3] Installing dependencies...
+cd /d "%ROOT%"
+call npm install
+if errorlevel 1 (
+    echo ERROR: npm install failed.
+    pause & exit /b 1
+)
 
-echo Creating SED file...
-(
-echo [Version]
-echo Class=IEXPRESS
-echo SEDVersion=3
-echo [Options]
-echo PackagePurpose=Install
-echo ShowInstallProgramWindow=1
-echo HideExtractAnimation=0
-echo UseLongFileName=1
-echo InsideCompression=1
-echo OutsideCompression=0
-echo SetupProgress=Yes
-echo SetupTitle=Security AI v0.1.0
-echo SetupText=Installing Security AI - Intelligent Video Surveillance...
-echo BrowseTitle=Select installation folder
-echo FinishedTitle=Installation Complete!
-echo FinishedText=Security AI has been installed successfully.
-echo You can launch it from the Desktop or Start Menu shortcut.
-echo [Files]
-echo files\*.*
-echo [EXTRACT]
-echo files
-echo [INSTALL]
-echo files\install.bat
-echo [SHOWWINDOW]
-echo SW_SHOW
-echo [FINISH]
-echo files\install.bat
-) > "%STAGING%\installer.sed"
+:: ---- 3. Build the full bundle -------------------------------------------
+:: (shared -> backend standalone -> PyInstaller AI freeze -> binaries -> vite)
+echo.
+echo [2/3] Building bundle (backend + AI service + binaries + UI)...
+cd /d "%DESKTOP%"
+call node scripts/build-bundle.js
+if errorlevel 1 (
+    echo ERROR: Bundle build failed.
+    pause & exit /b 1
+)
 
-echo Building installer with IExpress...
-"%IEXPRESS%" /N "%STAGING%\installer.sed"
+:: ---- 4. Package with electron-builder (NSIS) ----------------------------
+echo.
+echo [3/3] Packaging NSIS installer...
+call npx electron-builder --win --x64
+if errorlevel 1 (
+    echo ERROR: electron-builder failed.
+    pause & exit /b 1
+)
 
-if exist "%OUTPUT%" (
-    echo.
+:: ---- Done ----------------------------------------------------------------
+set "INSTALLER_EXE=%RELEASE_DIR%\Security AI Setup 0.1.0.exe"
+echo.
+if exist "%INSTALLER_EXE%" (
     echo ========================================
     echo   Installer created successfully!
     echo ========================================
-    echo   %OUTPUT%
-    echo.
-    for %%A in ("%OUTPUT%") do echo   Size: %%~zA bytes
+    echo   %INSTALLER_EXE%
+    for %%A in ("%INSTALLER_EXE%") do echo   Size: %%~zA bytes
 ) else (
-    echo ERROR: Installer creation failed.
+    echo Installer finished. Look for the setup exe in:
+    echo   %RELEASE_DIR%
 )
-
-echo Cleaning up...
-rmdir /s /q "%STAGING%"
+echo.
 pause

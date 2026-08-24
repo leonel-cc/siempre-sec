@@ -4,9 +4,15 @@
 
 # RTSP server settings
 rtsp: yes
-protocols: [rtsp, rtmp, hls]
-rtspAddress: :8555
+protocols: [udp, multicast, tcp]
+rtspAddress: :8554
+
+# RTMP server
+rtmp: yes
 rtmpAddress: :1935
+
+# HLS server
+hls: yes
 hlsAddress: :8888
 
 # API
@@ -17,20 +23,19 @@ apiAddress: :9997
 logLevel: info
 logDestinations: [stdout]
 
+# Open authentication for local development
+authInternalUsers:
+  - user: any
+    ips: [0.0.0.0/0, ::/0]
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+
 # Paths - cameras will be added dynamically
 paths:
   # Default path for all streams
   all_others:
-    source: publisher
-    readUser: ""
-    readPass: ""
-    writeUser: ""
-    writePass: ""
 
   # Simulated camera for development
   camera_sim:
-    source: publisher
-    readUser: ""
-    readPass: ""
-    writeUser: ""
-    writePass: ""

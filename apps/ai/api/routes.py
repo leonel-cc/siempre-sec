@@ -47,6 +47,12 @@ class AddRTSPSourceRequest(BaseModel):
     target_fps: int = 25
 
 
+class AddUsbSourceRequest(BaseModel):
+    source_id: str
+    device_index: int = 0
+    target_fps: int = 25
+
+
 class UpdateZonesRequest(BaseModel):
     camera_id: str
     zones: List[dict]
@@ -148,6 +154,24 @@ async def add_rtsp_source(request: AddRTSPSourceRequest):
     info = processor.add_rtsp_source(
         request.source_id, request.rtsp_url,
         username=request.username, password=request.password,
+        target_fps=request.target_fps,
+    )
+    processor.start_source(request.source_id)
+    return info
+
+
+@router.get("/devices/usb")
+async def list_usb_devices():
+    from discovery.usb_discovery import list_usb_cameras
+    devices = list_usb_cameras()
+    return {"devices": devices, "count": len(devices)}
+
+
+@router.post("/sources/usb")
+async def add_usb_source(request: AddUsbSourceRequest):
+    processor = _get_processor()
+    info = processor.add_usb_source(
+        request.source_id, request.device_index,
         target_fps=request.target_fps,
     )
     processor.start_source(request.source_id)

@@ -15,6 +15,7 @@ from buffer.video_buffer import VideoBuffer
 from sources.base import VideoSource, SourceStatus
 from sources.file_source import FileVideoSource
 from sources.rtsp_source import RTSPVideoSource
+from sources.usb_source import UsbVideoSource
 import config
 
 
@@ -108,6 +109,17 @@ class FrameProcessor:
             if source_id in self.sources:
                 self.sources[source_id].stop()
             source = RTSPVideoSource(source_id, rtsp_url, username, password, target_fps)
+            source.set_frame_callback(self._on_frame)
+            self.sources[source_id] = source
+            self.video_buffer.create_buffer(source_id)
+            return source.get_info()
+
+    def add_usb_source(self, source_id: str, device_index: int = 0,
+                       target_fps: int = 25) -> dict:
+        with self._lock:
+            if source_id in self.sources:
+                self.sources[source_id].stop()
+            source = UsbVideoSource(source_id, device_index, target_fps)
             source.set_frame_callback(self._on_frame)
             self.sources[source_id] = source
             self.video_buffer.create_buffer(source_id)

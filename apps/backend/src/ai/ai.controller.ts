@@ -47,6 +47,20 @@ export class AiController {
     return result;
   }
 
+  @Get('devices/usb')
+  async listUsbDevices() {
+    const result = await this.aiClient.listUsbDevices();
+    if (!result) throw new HttpException('AI service unavailable', 503);
+    return result;
+  }
+
+  @Post('sources/usb')
+  async addUsbSource(@Body() body: { source_id: string; device_index: number; target_fps?: number }) {
+    const result = await this.aiClient.addUsbSource(body.source_id, body.device_index, body.target_fps);
+    if (!result) throw new HttpException('AI service unavailable', 503);
+    return result;
+  }
+
   @Post('sources/:id/start')
   async startSource(@Param('id') id: string) {
     const result = await this.aiClient.startSource(id);

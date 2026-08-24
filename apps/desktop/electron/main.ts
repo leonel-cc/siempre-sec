@@ -54,6 +54,26 @@ function getMediaMTXDir(): string {
   return path.join(process.resourcesPath, 'mediamtx');
 }
 
+function getBinDir(): string {
+  if (isDev) {
+    return path.join(__dirname, '..', '..', '..', 'bin');
+  }
+  return path.join(process.resourcesPath, 'bin');
+}
+
+function buildChildEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
+  const binDir = getBinDir();
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const existingPath = process.env.PATH || process.env.Path || '';
+  return {
+    ...process.env,
+    PATH: `${binDir}${pathSep}${existingPath}`,
+    FFMPEG_PATH: path.join(binDir, 'ffmpeg.exe'),
+    MEDIAMTX_PATH: path.join(getMediaMTXDir(), 'mediamtx.exe'),
+    ...extra,
+  };
+}
+
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -84,14 +104,14 @@ async function startBackend(): Promise<void> {
 
   backendProcess = spawn(process.execPath, [scriptPath], {
     cwd: backendDir,
-    env: {
-      ...process.env,
+    env: buildChildEnv({
       ELECTRON_RUN_AS_NODE: '1',
       DATABASE_PATH: path.join(getDataDir(), 'security-ai.db'),
+      EVIDENCE_DIR: getEvidenceDir(),
       BACKEND_PORT: String(BACKEND_PORT),
       AI_SERVICE_HOST: '127.0.0.1',
       AI_SERVICE_PORT: String(AI_PORT),
-    },
+    }),
     stdio: 'pipe',
   });
 
@@ -127,13 +147,12 @@ async function startAiService(): Promise<void> {
       '--port', String(AI_PORT),
     ], {
       cwd: aiDir,
-      env: {
-        ...process.env,
+      env: buildChildEnv({
         AI_SERVICE_PORT: String(AI_PORT),
         AI_SERVICE_HOST: '127.0.0.1',
         BACKEND_URL: `http://127.0.0.1:${BACKEND_PORT}`,
         EVIDENCE_DIR: getEvidenceDir(),
-      },
+      }),
       stdio: 'pipe',
     });
   } else {
@@ -147,13 +166,12 @@ async function startAiService(): Promise<void> {
 
     aiProcess = spawn(exePath, [], {
       cwd: aiDir,
-      env: {
-        ...process.env,
+      env: buildChildEnv({
         AI_SERVICE_PORT: String(AI_PORT),
         AI_SERVICE_HOST: '127.0.0.1',
         BACKEND_URL: `http://127.0.0.1:${BACKEND_PORT}`,
         EVIDENCE_DIR: getEvidenceDir(),
-      },
+      }),
       stdio: 'pipe',
     });
   }
@@ -294,19 +312,25 @@ app.whenReady().then(async () => {
   console.log(`MediaMTX: ${mediaReady ? 'READY' : 'TIMEOUT'}`);
 });
 
+function killProcess(proc: ChildProcess | null, name: string): ChildProcess | null {
+  if (!proc) return null;
+  if (process.platform === 'win32' && proc.pid) {
+    try {
+      spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    } catch {
+      proc.kill();
+    }
+  } else {
+    proc.kill();
+  }
+  console.log(`${name} stopped`);
+  return null;
+}
+
 function killProcesses() {
-  if (backendProcess) {
-    backendProcess.kill();
-    backendProcess = null;
-  }
-  if (aiProcess) {
-    aiProcess.kill();
-    aiProcess = null;
-  }
-  if (mediamtxProcess) {
-    mediamtxProcess.kill();
-    mediamtxProcess = null;
-  }
+  mediamtxProcess = killProcess(mediamtxProcess, 'MediaMTX');
+  aiProcess = killProcess(aiProcess, 'AI Service');
+  backendProcess = killProcess(backendProcess, 'Backend');
 }
 
 app.on('window-all-closed', () => {

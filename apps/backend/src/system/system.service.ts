@@ -17,7 +17,9 @@ export class SystemService {
       this.aiClient.getHealth(),
     ]);
 
-    const mediamtxOnline = await this.checkPort(8554);
+    const mediamtxHost = process.env.MEDIAMTX_HOST || '127.0.0.1';
+    const mediamtxPort = parseInt(process.env.MEDIAMTX_PORT || '', 10) || 8554;
+    const mediamtxOnline = await this.checkPort(mediamtxPort, mediamtxHost);
 
     return {
       backend: { status: 'ONLINE', last_check: new Date().toISOString() },
@@ -40,14 +42,14 @@ export class SystemService {
     };
   }
 
-  private checkPort(port: number): Promise<boolean> {
+  private checkPort(port: number, host: string = '127.0.0.1'): Promise<boolean> {
     return new Promise((resolve) => {
       const socket = new net.Socket();
       socket.setTimeout(2000);
       socket.once('connect', () => { socket.destroy(); resolve(true); });
       socket.once('timeout', () => { socket.destroy(); resolve(false); });
       socket.once('error', () => { socket.destroy(); resolve(false); });
-      socket.connect(port, '127.0.0.1');
+      socket.connect(port, host);
     });
   }
 

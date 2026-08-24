@@ -10,7 +10,7 @@ import {
 import { CamerasService } from './cameras.service';
 import { AiClientService } from '../ai/ai-client.service';
 import { ZonesService } from '../zones/zones.service';
-import { CreateCameraDto, UpdateCameraDto } from '@security-ai/shared';
+import { CreateCameraDto, UpdateCameraDto, ConnectionType } from '@security-ai/shared';
 
 @Controller('cameras')
 export class CamerasController {
@@ -23,6 +23,13 @@ export class CamerasController {
   @Get()
   findAll() {
     return this.camerasService.findAll();
+  }
+
+  @Get('usb-devices')
+  async usbDevices() {
+    const result = await this.aiClient.listUsbDevices();
+    if (!result) return { devices: [], count: 0 };
+    return result;
   }
 
   @Get(':id')
@@ -48,12 +55,18 @@ export class CamerasController {
   @Post(':id/start')
   async startProcessing(@Param('id') id: string) {
     const camera = await this.camerasService.findOne(id);
-    const result = await this.aiClient.addRtspSource(
-      camera.id,
-      camera.rtspUrl,
-      camera.username,
-      camera.encrypted_password,
-    );
+    let result;
+    if (camera.connectionType === ConnectionType.WEBCAM) {
+      const deviceIndex = parseInt(camera.rtspUrl.replace('device://', ''), 10);
+      result = await this.aiClient.addUsbSource(camera.id, Number.isFinite(deviceIndex) ? deviceIndex : 0);
+    } else {
+      result = await this.aiClient.addRtspSource(
+        camera.id,
+        camera.rtspUrl,
+        camera.username,
+        camera.encrypted_password,
+      );
+    }
     if (result) {
       await this.camerasService.updateStatus(id, 'ONLINE');
 

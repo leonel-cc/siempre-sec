@@ -11,6 +11,8 @@ export default function Cameras() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<any[]>([]);
+  const [scanningUsb, setScanningUsb] = useState(false);
+  const [usbDevices, setUsbDevices] = useState<Array<{ index: number; name: string }>>([]);
   const [form, setForm] = useState({ name: '', host: '', port: 554, username: '', password: '', rtsp_url: '' });
   const [videoPath, setVideoPath] = useState('');
   const [testingVideo, setTestingVideo] = useState(false);
@@ -44,13 +46,17 @@ export default function Cameras() {
 
   async function addCamera() {
     try {
+      const isUsb = form.rtsp_url.startsWith('device://');
       await api.cameras.create({
         name: form.name,
-        host: form.host,
-        port: form.port,
+        host: isUsb ? 'local' : form.host,
+        port: isUsb ? 0 : form.port,
         username: form.username,
         password: form.password,
-        rtsp_url: form.rtsp_url || `rtsp://${form.host}:${form.port}/stream`,
+        rtsp_url: isUsb
+          ? form.rtsp_url
+          : form.rtsp_url || `rtsp://${form.host}:${form.port}/stream`,
+        connection_type: isUsb ? 'WEBCAM' : 'RTSP',
       });
       setShowAddForm(false);
       setForm({ name: '', host: '', port: 554, username: '', password: '', rtsp_url: '' });
@@ -65,6 +71,28 @@ export default function Cameras() {
       setDiscovered(data?.devices || []);
     } catch (e) { console.error(e); }
     finally { setDiscovering(false); }
+  }
+
+  async function scanUsb() {
+    setScanningUsb(true);
+    try {
+      const data = await api.cameras.usbDevices();
+      setUsbDevices(data?.devices || []);
+    } catch (e) { console.error(e); }
+    finally { setScanningUsb(false); }
+  }
+
+  function useUsbCamera(device: { index: number; name: string }) {
+    setForm({
+      name: device.name,
+      host: 'local',
+      port: 0,
+      username: '',
+      password: '',
+      rtsp_url: `device://${device.index}`,
+    });
+    setUsbDevices([]);
+    setShowAddForm(true);
   }
 
   async function startCamera(id: string) {
@@ -126,6 +154,10 @@ export default function Cameras() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Cámaras</h1>
         <div className="flex gap-2">
+          <button onClick={scanUsb} disabled={scanningUsb}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm disabled:opacity-50">
+            {scanningUsb ? 'Buscando...' : '📷 Cámaras USB'}
+          </button>
           <button onClick={discover} disabled={discovering}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm disabled:opacity-50">
             {discovering ? 'Buscando...' : '🔍 Buscar (ONVIF)'}
@@ -136,6 +168,26 @@ export default function Cameras() {
           </button>
         </div>
       </div>
+
+      {usbDevices.length > 0 && (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <h2 className="text-sm font-semibold text-gray-400 mb-3">Cámaras USB detectadas</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {usbDevices.map((d) => (
+              <div key={d.index} className="bg-gray-800 rounded-lg p-3 flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium">{d.name}</p>
+                  <p className="text-xs text-gray-500">Dispositivo {d.index}</p>
+                </div>
+                <button onClick={() => useUsbCamera(d)}
+                  className="text-xs text-security-400 hover:text-security-300">
+                  Usar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {discovered.length > 0 && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
@@ -248,7 +300,9 @@ export default function Cameras() {
                     }`}>{camera.status}</span>
                   </div>
                 </div>
-              <p className="text-xs text-gray-500">{camera.host}:{camera.port}</p>
+              <p className="text-xs text-gray-500">
+                {camera.connectionType === 'WEBCAM' ? camera.rtspUrl : `${camera.host}:${camera.port}`}
+              </p>
               <p className="text-xs text-gray-600">{camera.connectionType}</p>
               <div className="flex gap-1 mt-3" onClick={e => e.stopPropagation()}>
                 {camera.status !== 'ONLINE' ? (

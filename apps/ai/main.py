@@ -105,9 +105,8 @@ def _on_alert(camera_id, alert, clip_path, snapshot_path=""):
 
 
 if __name__ == "__main__":
-    is_frozen = getattr(sys, 'frozen', False)
     uvicorn.run(
-        "main:app",
+        app,
         host=config.AI_SERVICE_HOST,
         port=config.AI_SERVICE_PORT,
         reload=False,

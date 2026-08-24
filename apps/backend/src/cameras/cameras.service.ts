@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Camera } from './entities/camera.entity';
-import { CreateCameraDto, UpdateCameraDto } from '@security-ai/shared';
+import { CreateCameraDto, UpdateCameraDto, ConnectionType } from '@security-ai/shared';
 
 @Injectable()
 export class CamerasService {
@@ -22,13 +22,16 @@ export class CamerasService {
   }
 
   async create(dto: CreateCameraDto): Promise<Camera> {
+    const isWebcam = dto.connection_type === ConnectionType.WEBCAM;
     const camera = this.cameraRepo.create({
       name: dto.name,
-      host: dto.host,
-      port: dto.port || 554,
+      host: isWebcam ? 'local' : dto.host,
+      port: isWebcam ? 0 : dto.port || 554,
       username: dto.username || '',
       encrypted_password: dto.password || '',
-      rtspUrl: dto.rtsp_url || `rtsp://${dto.host}:${dto.port || 554}/stream`,
+      rtspUrl: isWebcam
+        ? dto.rtsp_url || 'device://0'
+        : dto.rtsp_url || `rtsp://${dto.host}:${dto.port || 554}/stream`,
       onvifEnabled: dto.onvif_enabled || false,
       enabled: dto.enabled ?? true,
       connectionType: dto.connection_type || 'RTSP',

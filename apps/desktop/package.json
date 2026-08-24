@@ -1,5 +1,6 @@
 {
   "name": "@security-ai/desktop",
+  "productName": "Security AI",
   "version": "0.1.0",
   "private": true,
   "description": "Security AI - Intelligent Video Surveillance",
@@ -10,6 +11,7 @@
     "build": "tsc && vite build",
     "build:win": "node scripts/build-bundle.js && electron-builder --win",
     "build:portable": "node scripts/build-bundle.js && electron-builder --win portable",
+    "fetch:binaries": "node scripts/fetch-binaries.js",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx"
   },
@@ -41,15 +43,17 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
-      "backend/**/*",
-      "ai/**/*"
-    ],
-    "asarUnpack": [
-      "backend/**",
-      "ai/**"
+      "dist-electron/**/*"
     ],
     "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend"
+      },
+      {
+        "from": "ai",
+        "to": "ai"
+      },
       {
         "from": "mediamtx/mediamtx.exe",
         "to": "mediamtx/mediamtx.exe"
@@ -57,6 +61,10 @@
       {
         "from": "mediamtx/mediamtx.yml",
         "to": "mediamtx/mediamtx.yml"
+      },
+      {
+        "from": "bin",
+        "to": "bin"
       }
     ],
     "win": {
@@ -68,7 +76,8 @@
           ]
         }
       ],
-      "icon": null
+      "icon": null,
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
