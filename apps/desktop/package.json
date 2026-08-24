@@ -1,0 +1,83 @@
+{
+  "name": "@security-ai/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Security AI - Intelligent Video Surveillance",
+  "author": "Security AI Team",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:win": "node scripts/build-bundle.js && electron-builder --win",
+    "build:portable": "node scripts/build-bundle.js && electron-builder --win portable",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx"
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.26.0",
+    "socket.io-client": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "electron": "31.7.7",
+    "electron-builder": "^24.13.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.0"
+  },
+  "build": {
+    "appId": "com.securityai.desktop",
+    "productName": "Security AI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "backend/**/*",
+      "ai/**/*"
+    ],
+    "asarUnpack": [
+      "backend/**",
+      "ai/**"
+    ],
+    "extraResources": [
+      {
+        "from": "mediamtx/mediamtx.exe",
+        "to": "mediamtx/mediamtx.exe"
+      },
+      {
+        "from": "mediamtx/mediamtx.yml",
+        "to": "mediamtx/mediamtx.yml"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": null,
+      "uninstallerIcon": null,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Security AI"
+    }
+  }
+}

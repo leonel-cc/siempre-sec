@@ -1,0 +1,36 @@
+###############################################
+# MediaMTX Configuration for Security AI
+###############################################
+
+# RTSP server settings
+rtsp: yes
+protocols: [rtsp, rtmp, hls]
+rtspAddress: :8555
+rtmpAddress: :1935
+hlsAddress: :8888
+
+# API
+api: yes
+apiAddress: :9997
+
+# Logging
+logLevel: info
+logDestinations: [stdout]
+
+# Paths - cameras will be added dynamically
+paths:
+  # Default path for all streams
+  all_others:
+    source: publisher
+    readUser: ""
+    readPass: ""
+    writeUser: ""
+    writePass: ""
+
+  # Simulated camera for development
+  camera_sim:
+    source: publisher
+    readUser: ""
+    readPass: ""
+    writeUser: ""
+    writePass: ""

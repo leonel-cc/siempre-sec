@@ -1,0 +1,39 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:3000")
+AI_SERVICE_PORT = int(os.getenv("AI_SERVICE_PORT", "5000"))
+AI_SERVICE_HOST = os.getenv("AI_SERVICE_HOST", "0.0.0.0")
+
+YOLO_MODEL = os.getenv("YOLO_MODEL", "yolov8n.pt")
+YOLO_CONFIDENCE_THRESHOLD = float(os.getenv("YOLO_CONFIDENCE_THRESHOLD", "0.5"))
+INFERENCE_FPS = int(os.getenv("INFERENCE_FPS", "5"))
+FACE_RECOGNITION_THRESHOLD = float(os.getenv("FACE_RECOGNITION_THRESHOLD", "0.6"))
+MOTION_SENSITIVITY = float(os.getenv("MOTION_SENSITIVITY", "0.5"))
+
+DETECTION_CLASSES = [
+    "person", "car", "motorcycle", "bicycle", "dog", "cat",
+]
+
+ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "60"))
+BUFFER_DURATION_SECONDS = int(os.getenv("BUFFER_DURATION_SECONDS", "30"))
+PRE_EVENT_SECONDS = int(os.getenv("PRE_EVENT_SECONDS", "15"))
+POST_EVENT_SECONDS = int(os.getenv("POST_EVENT_SECONDS", "15"))
+
+EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", "./evidence")
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
+
+WEAPON_MODEL = os.getenv("WEAPON_MODEL", "Subh775/Threat-Detection-YOLOv8n")
+WEAPON_CONFIDENCE_THRESHOLD = float(os.getenv("WEAPON_CONFIDENCE_THRESHOLD", "0.4"))
+WEAPON_ENABLED = os.getenv("WEAPON_ENABLED", "true").lower() == "true"
+WEAPON_CHECK_INTERVAL = int(os.getenv("WEAPON_CHECK_INTERVAL", "3"))
+
+SPEED_WALKING_THRESHOLD = float(os.getenv("SPEED_WALKING_THRESHOLD", "150"))
+SPEED_RUNNING_THRESHOLD = float(os.getenv("SPEED_RUNNING_THRESHOLD", "400"))
+SPEED_SPRINTING_THRESHOLD = float(os.getenv("SPEED_SPRINTING_THRESHOLD", "700"))
+LOITERING_THRESHOLD_SECONDS = float(os.getenv("LOITERING_THRESHOLD_SECONDS", "30"))
+TRAJECTORY_ANOMALY_THRESHOLD = float(os.getenv("TRAJECTORY_ANOMALY_THRESHOLD", "0.7"))
+FACE_COVERED_MIN_BBOX_HEIGHT = int(os.getenv("FACE_COVERED_MIN_BBOX_HEIGHT", "80"))
+PERIMETER_APPROACH_DISTANCE = float(os.getenv("PERIMETER_APPROACH_DISTANCE", "100"))

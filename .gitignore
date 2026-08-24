@@ -1,0 +1,83 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# Video evidence
+evidence/
+recordings/
+
+# Coverage
+coverage/
+htmlcov/
+.pytest_cache/
+
+# MediaMTX
+services/media/mediamtx.db
+
+# Docker
+infrastructure/docker/.env
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# YOLO models (downloaded at runtime)
+apps/ai/models/weights/
+
+# Face embeddings cache
+apps/ai/models/embeddings/
+
+# Build staging
+**/.backend-staging/
+**/.ai-staging/
+
+# Build artifacts
+apps/desktop/release/
+apps/desktop/release-mtx/
+apps/desktop/release-fresh/
+apps/desktop/release-new/
+installer/staging/
+*.exe
+apps/desktop/backend/
+apps/desktop/ai/
+apps/ai/dist/
+apps/ai/build/
+apps/ai/*.spec
+data/
+evidence/
+logs/

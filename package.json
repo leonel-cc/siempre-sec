@@ -1,0 +1,33 @@
+{
+  "name": "security-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Intelligent video surveillance system with AI",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:desktop": "npm run dev --workspace=apps/desktop",
+    "dev:backend": "npm run start:dev --workspace=apps/backend",
+    "build:desktop": "npm run build --workspace=apps/desktop",
+    "build:backend": "node -e \"const fs=require('fs'),p=require('path');['tsconfig.tsbuildinfo','tsconfig.build.tsbuildinfo','dist'].forEach(f=>{const fp=p.join('apps/backend',f);try{fs.rmSync(fp,{recursive:true,force:true})}catch(e){}})\" && npm run build --workspace=apps/backend",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0",
+    "app-builder-bin": "^4.2.0",
+    "app-builder-lib": "^26.15.3",
+    "commander": "^15.0.0",
+    "is-glob": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25"
+  }
+}
