@@ -1,5 +1,6 @@
 export const API_BASE = 'http://localhost:3000/api';
 export const BACKEND_URL = 'http://localhost:3000';
+export const AI_BASE = 'http://localhost:5000';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {

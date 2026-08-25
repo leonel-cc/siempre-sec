@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
+import asyncio
 import base64
 import numpy as np
 import cv2
@@ -222,6 +224,29 @@ async def get_snapshot(source_id: str):
         raise HTTPException(status_code=404, detail="No frame available")
     _, buffer = cv2.imencode('.jpg', frame)
     return {"image": base64.b64encode(buffer).decode('utf-8')}
+
+
+@router.get("/sources/{source_id}/stream")
+async def stream_source(source_id: str, fps: int = 25):
+    processor = _get_processor()
+    interval = 1.0 / max(1, min(fps, 30))
+
+    async def generate():
+        while True:
+            frame = processor.get_snapshot(source_id)
+            if frame is not None:
+                ok, buffer = cv2.imencode(
+                    '.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ok:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' +
+                           buffer.tobytes() + b'\r\n')
+            await asyncio.sleep(interval)
+
+    return StreamingResponse(
+        generate(),
+        media_type='multipart/x-mixed-replace; boundary=frame',
+    )
 
 
 @router.get("/stats")

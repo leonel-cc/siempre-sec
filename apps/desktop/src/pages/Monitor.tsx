@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { api } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { api, AI_BASE } from '../lib/api';
 import { Spinner } from '../components/Loading';
 
 const LAYOUTS: Record<string, string> = {
@@ -13,23 +13,11 @@ export default function Monitor() {
   const [layout, setLayout] = useState('2x2');
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fpsMap, setFpsMap] = useState<Record<string, number>>({});
-  const canvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const intervals = useRef<Map<string, number>>(new Map());
+  const [readyMap, setReadyMap] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadCameras();
-    return () => {
-      intervals.current.forEach(id => clearInterval(id));
-      intervals.current.clear();
-    };
   }, []);
-
-  useEffect(() => {
-    intervals.current.forEach(id => clearInterval(id));
-    intervals.current.clear();
-    selected.forEach(camId => startStream(camId));
-  }, [selected]);
 
   async function loadCameras() {
     try {
@@ -43,59 +31,25 @@ export default function Monitor() {
     setLoading(false);
   }
 
-  function startStream(cameraId: string) {
-    let count = 0;
-    const interval = window.setInterval(async () => {
-      try {
-        const base64 = await api.cameras.fetchSnapshot(cameraId);
-        if (base64) {
-          const canvas = canvasRefs.current.get(cameraId);
-          if (canvas) {
-            const img = new Image();
-            img.onload = () => {
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) ctx.drawImage(img, 0, 0);
-            };
-            img.src = `data:image/jpeg;base64,${base64}`;
-          }
-        }
-        count++;
-        if (count % 5 === 0) {
-          setFpsMap(prev => ({ ...prev, [cameraId]: 2 }));
-        }
-      } catch (e) {
-        // silent
-      }
-    }, 500);
-    intervals.current.set(cameraId, interval);
+  function markReady(camId: string) {
+    setReadyMap(prev => (prev[camId] ? prev : { ...prev, [camId]: true }));
   }
 
-  function toggleCamera(cameraId: string) {
+  function getCameraName(camId: string) {
+    return cameras.find(c => c.id === camId)?.name || camId;
+  }
+
+  function toggleCamera(camId: string) {
     setSelected(prev => {
-      if (prev.includes(cameraId)) return prev.filter(id => id !== cameraId);
-      return [...prev, cameraId];
+      if (prev.includes(camId)) return prev.filter(id => id !== camId);
+      return [...prev, camId];
     });
-  }
-
-  function getCameraName(cameraId: string) {
-    return cameras.find(c => c.id === cameraId)?.name || cameraId;
   }
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold">Monitoreo en Vivo</h1>
-        <div className="flex items-center gap-2 text-gray-500">
-          <Spinner size="sm" />
-          <span className="text-sm">Cargando cámaras...</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-gray-900 rounded-xl border border-gray-800 aspect-video animate-pulse" />
-          ))}
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <Spinner />
       </div>
     );
   }
@@ -132,23 +86,25 @@ export default function Monitor() {
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 <span className="text-xs font-medium">{getCameraName(camId)}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-500">{fpsMap[camId] || 0} FPS</span>
-                <button
-                  onClick={() => toggleCamera(camId)}
-                  className="text-gray-500 hover:text-red-400 text-[10px]"
-                >
-                  ✕
-                </button>
-              </div>
+              <button
+                onClick={() => toggleCamera(camId)}
+                className="text-gray-500 hover:text-red-400 text-[10px]"
+              >
+                ✕
+              </button>
             </div>
             <div className="relative bg-black aspect-video flex items-center justify-center">
-              <canvas
-                ref={el => {
-                  if (el) canvasRefs.current.set(camId, el);
-                }}
+              <img
+                src={`${AI_BASE}/sources/${camId}/stream`}
+                alt={getCameraName(camId)}
                 className="max-w-full max-h-full"
+                onLoad={() => markReady(camId)}
               />
+              {!readyMap[camId] && (
+                <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-xs">
+                  Esperando señal...
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -172,5 +128,6 @@ export default function Monitor() {
         </div>
       </div>
     </div>
+
   );
 }
