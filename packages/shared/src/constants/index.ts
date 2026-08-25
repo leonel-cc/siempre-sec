@@ -20,6 +20,9 @@ export const DETECTION_CLASSES = [
   'cat',
 ] as const;
 
-export const BACKEND_PORT = parseInt(process.env.BACKEND_PORT || '3000', 10);
-export const AI_SERVICE_PORT = parseInt(process.env.AI_SERVICE_PORT || '5000', 10);
-export const MEDIAMTX_PORT = parseInt(process.env.MEDIAMTX_PORT || '8554', 10);
+const env: Record<string, string | undefined> =
+  typeof process !== 'undefined' && process.env ? process.env : {};
+
+export const BACKEND_PORT = parseInt(env.BACKEND_PORT || '3000', 10);
+export const AI_SERVICE_PORT = parseInt(env.AI_SERVICE_PORT || '5000', 10);
+export const MEDIAMTX_PORT = parseInt(env.MEDIAMTX_PORT || '8554', 10);
