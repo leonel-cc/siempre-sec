@@ -111,6 +111,12 @@ async function startBackend() {
     backendProcess = null;
   });
 }
+function resolvePython(aiDir) {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+  const venvPython = process.platform === "win32" ? path.join(aiDir, ".venv", "Scripts", "python.exe") : path.join(aiDir, ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) return venvPython;
+  return "python";
+}
 async function startAiService() {
   var _a, _b;
   if (!await isPortAvailable(AI_PORT)) {
@@ -120,8 +126,9 @@ async function startAiService() {
   const aiDir = getAiDir();
   if (isDev) {
     const scriptPath = path.join(aiDir, "main.py");
-    console.log(`Starting AI service (dev): ${scriptPath}`);
-    aiProcess = child_process.spawn("python", [
+    const pythonBin = resolvePython(aiDir);
+    console.log(`Starting AI service (dev): ${scriptPath} with ${pythonBin}`);
+    aiProcess = child_process.spawn(pythonBin, [
       "-m",
       "uvicorn",
       "main:app",
@@ -223,6 +230,16 @@ function waitForService(port, timeoutMs = 3e4) {
     check();
   });
 }
+const gotTheLock = electron.app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  electron.app.quit();
+}
+electron.app.on("second-instance", () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 function createWindow() {
   mainWindow = new electron.BrowserWindow({
     width: 1400,
@@ -247,6 +264,7 @@ function createWindow() {
   });
 }
 electron.app.whenReady().then(async () => {
+  if (!gotTheLock) return;
   console.log("Security AI starting...");
   console.log(`Mode: ${isDev ? "development" : "production"}`);
   electron.ipcMain.handle("open-file-dialog", async (_event, options) => {

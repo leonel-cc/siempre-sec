@@ -3,12 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",
-  "module": "dist/index.js",
+  "module": "dist-esm/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist-esm/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.esm.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "rm -rf dist dist-esm"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

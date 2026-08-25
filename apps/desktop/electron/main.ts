@@ -129,6 +129,15 @@ async function startBackend(): Promise<void> {
   });
 }
 
+function resolvePython(aiDir: string): string {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+  const venvPython = process.platform === 'win32'
+    ? path.join(aiDir, '.venv', 'Scripts', 'python.exe')
+    : path.join(aiDir, '.venv', 'bin', 'python');
+  if (fs.existsSync(venvPython)) return venvPython;
+  return 'python';
+}
+
 async function startAiService(): Promise<void> {
   if (!await isPortAvailable(AI_PORT)) {
     console.log(`AI Service already running on port ${AI_PORT}`);
@@ -139,9 +148,10 @@ async function startAiService(): Promise<void> {
 
   if (isDev) {
     const scriptPath = path.join(aiDir, 'main.py');
-    console.log(`Starting AI service (dev): ${scriptPath}`);
+    const pythonBin = resolvePython(aiDir);
+    console.log(`Starting AI service (dev): ${scriptPath} with ${pythonBin}`);
 
-    aiProcess = spawn('python', [
+    aiProcess = spawn(pythonBin, [
       '-m', 'uvicorn', 'main:app',
       '--host', '127.0.0.1',
       '--port', String(AI_PORT),
@@ -254,6 +264,18 @@ function waitForService(port: number, timeoutMs: number = 30000): Promise<boolea
   });
 }
 
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -282,6 +304,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!gotTheLock) return;
   console.log('Security AI starting...');
   console.log(`Mode: ${isDev ? 'development' : 'production'}`);
 

@@ -29,6 +29,17 @@ function waitPort(port, timeoutMs) {
   });
 }
 
+function isPortServing(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: 'localhost', port, path: '/', timeout: 1000 }, res => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
 (async () => {
   const out = logStream();
   const stamp = () => new Date().toISOString();
@@ -38,28 +49,35 @@ function waitPort(port, timeoutMs) {
   const viteBin = path.join(workspaceRoot, 'node_modules', 'vite', 'bin', 'vite.js');
   const electronBin = path.join(workspaceRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
 
-  if (!fs.existsSync(viteBin)) {
-    out.write(`[${stamp()}] vite binary not found at ${viteBin}\n`);
-    process.exit(1);
-  }
-  const vite = spawn(process.execPath, [viteBin], {
-    cwd: DESKTOP_DIR,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  vite.stdout.pipe(out, { end: false });
-  vite.stderr.pipe(out, { end: false });
+  let vite = null;
+  let ownsVite = false;
 
-  let electron;
-  try {
-    await waitPort(5173, 60000);
-    out.write(`[${stamp()}] vite ready\n`);
-  } catch (e) {
-    out.write(`[${stamp()}] vite failed to start: ${e.message}\n`);
-    vite.kill();
-    process.exit(1);
+  if (await isPortServing(5173)) {
+    out.write(`[${stamp()}] reusing existing vite on :5173\n`);
+  } else {
+    if (!fs.existsSync(viteBin)) {
+      out.write(`[${stamp()}] vite binary not found at ${viteBin}\n`);
+      process.exit(1);
+    }
+    vite = spawn(process.execPath, [viteBin], {
+      cwd: DESKTOP_DIR,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    ownsVite = true;
+    vite.stdout.pipe(out, { end: false });
+    vite.stderr.pipe(out, { end: false });
+
+    try {
+      await waitPort(5173, 60000);
+      out.write(`[${stamp()}] vite ready\n`);
+    } catch (e) {
+      out.write(`[${stamp()}] vite failed to start: ${e.message}\n`);
+      vite.kill();
+      process.exit(1);
+    }
   }
 
-  electron = spawn(electronBin, ['.'], {
+  const electron = spawn(electronBin, ['.'], {
     cwd: DESKTOP_DIR,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -68,13 +86,15 @@ function waitPort(port, timeoutMs) {
   out.write(`[${stamp()}] electron started (pid ${electron.pid})\n`);
 
   electron.on('exit', code => {
-    out.write(`[${stamp()}] electron exited (${code}), stopping vite\n`);
-    vite.kill();
+    out.write(`[${stamp()}] electron exited (${code})${ownsVite ? ', stopping vite' : ''}\n`);
+    if (ownsVite && vite) vite.kill();
     process.exit(0);
   });
-  vite.on('exit', code => {
-    out.write(`[${stamp()}] vite exited (${code}) — killing electron so no blank window remains\n`);
-    try { electron.kill(); } catch {}
-    process.exit(1);
-  });
+  if (vite) {
+    vite.on('exit', code => {
+      out.write(`[${stamp()}] vite exited (${code}) — killing electron so no blank window remains\n`);
+      try { electron.kill(); } catch {}
+      process.exit(1);
+    });
+  }
 })();

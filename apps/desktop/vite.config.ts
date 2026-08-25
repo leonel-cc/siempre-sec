@@ -10,6 +10,10 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        onstart() {
+          // Electron is launched by scripts/dev.js; avoid a second instance here.
+          console.log('[electron] main rebuilt — restart the app to apply');
+        },
         vite: {
           build: {
             outDir: 'dist-electron',
