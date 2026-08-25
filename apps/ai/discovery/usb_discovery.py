@@ -41,6 +41,17 @@ def list_usb_cameras() -> list:
             continue
         if 'DirectShow audio devices' in line:
             break
+        if 'Alternative name' in line:
+            continue
+        # ffmpeg >= 7: '... "Name" (video)' / '(audio)' / '(none)'
+        typed = re.search(r'"([^"]+)"\s*\((video|audio)\)', line)
+        if typed:
+            name, dev_type = typed.group(1), typed.group(2)
+            if dev_type == 'video' and name.strip() and name not in seen:
+                seen.add(name)
+                devices.append({'index': len(devices), 'name': name.strip()})
+            continue
+        # legacy ffmpeg: '"Name"' lines under the video devices section
         if not in_video_section:
             continue
         match = _DEVICE_LINE.search(line)

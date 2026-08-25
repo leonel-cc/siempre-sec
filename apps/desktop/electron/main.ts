@@ -296,6 +296,11 @@ app.whenReady().then(async () => {
     return result.canceled ? null : result.filePaths[0];
   });
 
+  ipcMain.handle('list-usb-devices', async () => {
+    const { listUsbDevices } = await import('./usb-devices');
+    return listUsbDevices();
+  });
+
   createWindow();
 
   startBackend().catch(e => console.error('Backend start error:', e));

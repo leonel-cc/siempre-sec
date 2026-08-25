@@ -26,7 +26,11 @@ export const api = {
     update: (id: string, data: any) => request<any>(`/cameras/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id: string) => request<void>(`/cameras/${id}`, { method: 'DELETE' }),
     discover: () => request<any>('/cameras/discover', { method: 'POST' }),
-    usbDevices: () => request<{ devices: Array<{ index: number; name: string }>; count: number }>('/cameras/usb-devices'),
+    usbDevices: async (): Promise<{ devices: Array<{ index: number; name: string }>; count: number }> => {
+      const local = await (window as any).electronAPI?.listUsbDevices?.();
+      if (local) return local;
+      return request<{ devices: Array<{ index: number; name: string }>; count: number }>('/cameras/usb-devices');
+    },
   },
   events: {
     list: (limit = 50, offset = 0) => request<any[]>(`/events?limit=${limit}&offset=${offset}`),

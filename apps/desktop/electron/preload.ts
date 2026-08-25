@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('window-close'),
   openFileDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke('open-file-dialog', options || {}),
+  listUsbDevices: () => ipcRenderer.invoke('list-usb-devices'),
 });
