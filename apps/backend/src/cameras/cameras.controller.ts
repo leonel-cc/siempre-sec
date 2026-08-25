@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  HttpCode,
 } from '@nestjs/common';
 import { CamerasService } from './cameras.service';
 import { AiClientService } from '../ai/ai-client.service';
@@ -91,6 +92,7 @@ export class CamerasController {
   }
 
   @Post(':id/snapshot')
+  @HttpCode(200)
   async getSnapshot(@Param('id') id: string) {
     return this.aiClient.getSnapshot(id);
   }

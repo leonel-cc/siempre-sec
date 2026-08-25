@@ -47,21 +47,18 @@ export default function Monitor() {
     let count = 0;
     const interval = window.setInterval(async () => {
       try {
-        const response = await fetch(`http://localhost:3000/api/cameras/${cameraId}/snapshot`, { method: 'POST' });
-        if (response.ok) {
-          const data = await response.json();
-          if (data) {
-            const canvas = canvasRefs.current.get(cameraId);
-            if (canvas) {
-              const img = new Image();
-              img.onload = () => {
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                if (ctx) ctx.drawImage(img, 0, 0);
-              };
-              img.src = `data:image/jpeg;base64,${data}`;
-            }
+        const base64 = await api.cameras.fetchSnapshot(cameraId);
+        if (base64) {
+          const canvas = canvasRefs.current.get(cameraId);
+          if (canvas) {
+            const img = new Image();
+            img.onload = () => {
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) ctx.drawImage(img, 0, 0);
+            };
+            img.src = `data:image/jpeg;base64,${base64}`;
           }
         }
         count++;

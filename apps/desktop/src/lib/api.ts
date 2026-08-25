@@ -31,6 +31,24 @@ export const api = {
       if (local) return local;
       return request<{ devices: Array<{ index: number; name: string }>; count: number }>('/cameras/usb-devices');
     },
+    fetchSnapshot: async (id: string): Promise<string | null> => {
+      try {
+        const response = await fetch(`http://localhost:3000/api/cameras/${id}/snapshot`, { method: 'POST' });
+        if (!response.ok) return null;
+        const text = await response.text();
+        if (!text) return null;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed === 'string') return parsed;
+          if (parsed && typeof parsed.image === 'string') return parsed.image;
+          return null;
+        } catch {
+          return text.startsWith('/') ? text : null;
+        }
+      } catch {
+        return null;
+      }
+    },
   },
   events: {
     list: (limit = 50, offset = 0) => request<any[]>(`/events?limit=${limit}&offset=${offset}`),

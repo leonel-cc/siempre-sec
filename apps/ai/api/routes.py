@@ -221,7 +221,7 @@ async def get_snapshot(source_id: str):
     if frame is None:
         raise HTTPException(status_code=404, detail="No frame available")
     _, buffer = cv2.imencode('.jpg', frame)
-    return base64.b64encode(buffer).decode('utf-8')
+    return {"image": base64.b64encode(buffer).decode('utf-8')}
 
 
 @router.get("/stats")
