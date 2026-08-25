@@ -17,7 +17,7 @@ const MEDIAMTX_PORT = 8554;
 
 function getBackendDir(): string {
   if (isDev) {
-    return path.join(__dirname, '..', '..', 'apps', 'backend');
+    return path.join(__dirname, '..', '..', 'backend');
   }
   const asarUnpacked = path.join(process.resourcesPath, 'app.asar.unpacked');
   const backendDir = path.join(asarUnpacked, 'backend');
@@ -27,7 +27,7 @@ function getBackendDir(): string {
 
 function getAiDir(): string {
   if (isDev) {
-    return path.join(__dirname, '..', '..', 'apps', 'ai');
+    return path.join(__dirname, '..', '..', 'ai');
   }
   const asarUnpacked = path.join(process.resourcesPath, 'app.asar.unpacked');
   const aiDir = path.join(asarUnpacked, 'ai');
@@ -271,7 +271,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
