@@ -1,1 +1,309 @@
-"use strict";const a=require("electron"),o=require("path"),c=require("fs"),h=require("child_process"),T=require("net"),g=!a.app.isPackaged;let f=null,d=null,l=null,u=null;const m=3e3,p=5e3,A=8554;function M(){if(g)return o.join(__dirname,"..","..","backend");const e=o.join(process.resourcesPath,"app.asar.unpacked"),t=o.join(e,"backend");return c.existsSync(t)?t:o.join(process.resourcesPath,"backend")}function k(){if(g)return o.join(__dirname,"..","..","ai");const e=o.join(process.resourcesPath,"app.asar.unpacked"),t=o.join(e,"ai");return c.existsSync(t)?t:o.join(process.resourcesPath,"ai")}function x(){const e=o.join(a.app.getPath("userData"),"data");return c.existsSync(e)||c.mkdirSync(e,{recursive:!0}),e}function P(){const e=o.join(a.app.getPath("userData"),"evidence");return c.existsSync(e)||c.mkdirSync(e,{recursive:!0}),e}function I(){return g?o.join(__dirname,"..","mediamtx"):o.join(process.resourcesPath,"mediamtx")}function y(){return g?o.join(__dirname,"..","..","..","bin"):o.join(process.resourcesPath,"bin")}function _(e={}){const t=y(),i=process.platform==="win32"?";":":",n=process.env.PATH||process.env.Path||"";return{...process.env,PATH:`${t}${i}${n}`,FFMPEG_PATH:o.join(t,"ffmpeg.exe"),MEDIAMTX_PATH:o.join(I(),"mediamtx.exe"),...e}}function E(e){return new Promise(t=>{const i=T.createServer();i.once("error",()=>t(!1)),i.once("listening",()=>{i.close(),t(!0)}),i.listen(e,"127.0.0.1")})}async function $(){var i,n;if(!await E(m)){console.log(`Backend already running on port ${m}`);return}const e=M(),t=o.join(e,"dist","main.js");if(!c.existsSync(t)){console.error(`Backend script not found: ${t}`);return}console.log(`Starting backend: ${t}`),d=h.spawn(process.execPath,[t],{cwd:e,env:_({ELECTRON_RUN_AS_NODE:"1",DATABASE_PATH:o.join(x(),"security-ai.db"),EVIDENCE_DIR:P(),BACKEND_PORT:String(m),AI_SERVICE_HOST:"127.0.0.1",AI_SERVICE_PORT:String(p)}),stdio:"pipe"}),(i=d.stdout)==null||i.on("data",r=>{console.log(`[Backend] ${r.toString().trim()}`)}),(n=d.stderr)==null||n.on("data",r=>{console.error(`[Backend] ${r.toString().trim()}`)}),d.on("exit",r=>{console.log(`Backend exited with code ${r}`),d=null})}async function R(){var t,i;if(!await E(p)){console.log(`AI Service already running on port ${p}`);return}const e=k();if(g){const n=o.join(e,"main.py");console.log(`Starting AI service (dev): ${n}`),l=h.spawn("python",["-m","uvicorn","main:app","--host","127.0.0.1","--port",String(p)],{cwd:e,env:_({AI_SERVICE_PORT:String(p),AI_SERVICE_HOST:"127.0.0.1",BACKEND_URL:`http://127.0.0.1:${m}`,EVIDENCE_DIR:P()}),stdio:"pipe"})}else{const n=o.join(e,"security-ai-service.exe");if(!c.existsSync(n)){console.error(`AI service executable not found: ${n}`);return}console.log(`Starting AI service (production): ${n}`),l=h.spawn(n,[],{cwd:e,env:_({AI_SERVICE_PORT:String(p),AI_SERVICE_HOST:"127.0.0.1",BACKEND_URL:`http://127.0.0.1:${m}`,EVIDENCE_DIR:P()}),stdio:"pipe"})}(t=l.stdout)==null||t.on("data",n=>{console.log(`[AI] ${n.toString().trim()}`)}),(i=l.stderr)==null||i.on("data",n=>{console.error(`[AI] ${n.toString().trim()}`)}),l.on("exit",n=>{console.log(`AI Service exited with code ${n}`),l=null})}async function j(){var n,r;if(!await E(A)){console.log(`MediaMTX already running on port ${A}`);return}const e=I(),t=o.join(e,"mediamtx.exe"),i=o.join(e,"mediamtx.yml");if(!c.existsSync(t)){console.error(`MediaMTX not found: ${t}`);return}if(!c.existsSync(i)){console.error(`MediaMTX config not found: ${i}`);return}console.log(`Starting MediaMTX: ${t}`),u=h.spawn(t,[i],{cwd:e,env:{...process.env},stdio:"pipe"}),(n=u.stdout)==null||n.on("data",s=>{console.log(`[MediaMTX] ${s.toString().trim()}`)}),(r=u.stderr)==null||r.on("data",s=>{console.error(`[MediaMTX] ${s.toString().trim()}`)}),u.on("exit",s=>{console.log(`MediaMTX exited with code ${s}`),u=null})}function S(e,t=3e4){return new Promise(i=>{const n=Date.now(),r=()=>{const s=T.createConnection(e,"127.0.0.1");s.once("connect",()=>{s.end(),i(!0)}),s.once("error",()=>{s.destroy(),Date.now()-n>t?i(!1):setTimeout(r,1e3)})};r()})}function D(){f=new a.BrowserWindow({width:1400,height:900,minWidth:1024,minHeight:700,title:"Security AI",backgroundColor:"#030712",webPreferences:{preload:o.join(__dirname,"preload.js"),contextIsolation:!0,nodeIntegration:!1}}),g?f.loadURL("http://localhost:5173"):f.loadFile(o.join(__dirname,"../dist/index.html")),f.on("closed",()=>{f=null})}a.app.whenReady().then(async()=>{console.log("Security AI starting..."),console.log(`Mode: ${g?"development":"production"}`),a.ipcMain.handle("open-file-dialog",async(n,r)=>{const s=await a.dialog.showOpenDialog(f,{properties:["openFile"],filters:(r==null?void 0:r.filters)||[{name:"Videos",extensions:["mp4","avi","mkv","webm"]},{name:"Todos",extensions:["*"]}]});return s.canceled?null:s.filePaths[0]}),a.ipcMain.handle("list-usb-devices",async()=>{const{listUsbDevices:n}=await Promise.resolve().then(()=>require("./usb-devices-H4Tsx-wA.js"));return n()}),D(),$().catch(n=>console.error("Backend start error:",n)),R().catch(n=>console.error("AI start error:",n)),j().catch(n=>console.error("MediaMTX start error:",n));const e=await S(m,15e3);console.log(`Backend: ${e?"READY":"TIMEOUT"}`);const t=await S(p,6e4);console.log(`AI Service: ${t?"READY":"TIMEOUT"}`);const i=await S(A,1e4);console.log(`MediaMTX: ${i?"READY":"TIMEOUT"}`)});function w(e,t){if(!e)return null;if(process.platform==="win32"&&e.pid)try{h.spawn("taskkill",["/pid",String(e.pid),"/T","/F"],{stdio:"ignore"})}catch{e.kill()}else e.kill();return console.log(`${t} stopped`),null}function v(){u=w(u,"MediaMTX"),l=w(l,"AI Service"),d=w(d,"Backend")}a.app.on("window-all-closed",()=>{v(),process.platform!=="darwin"&&a.app.quit()});a.app.on("activate",()=>{a.BrowserWindow.getAllWindows().length===0&&D()});a.app.on("before-quit",()=>{v()});
+"use strict";
+const electron = require("electron");
+const path = require("path");
+const fs = require("fs");
+const child_process = require("child_process");
+const net = require("net");
+const isDev = !electron.app.isPackaged;
+let mainWindow = null;
+let backendProcess = null;
+let aiProcess = null;
+let mediamtxProcess = null;
+const BACKEND_PORT = 3e3;
+const AI_PORT = 5e3;
+const MEDIAMTX_PORT = 8554;
+function getBackendDir() {
+  if (isDev) {
+    return path.join(__dirname, "..", "..", "backend");
+  }
+  const asarUnpacked = path.join(process.resourcesPath, "app.asar.unpacked");
+  const backendDir = path.join(asarUnpacked, "backend");
+  if (fs.existsSync(backendDir)) return backendDir;
+  return path.join(process.resourcesPath, "backend");
+}
+function getAiDir() {
+  if (isDev) {
+    return path.join(__dirname, "..", "..", "ai");
+  }
+  const asarUnpacked = path.join(process.resourcesPath, "app.asar.unpacked");
+  const aiDir = path.join(asarUnpacked, "ai");
+  if (fs.existsSync(aiDir)) return aiDir;
+  return path.join(process.resourcesPath, "ai");
+}
+function getDataDir() {
+  const dir = path.join(electron.app.getPath("userData"), "data");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function getEvidenceDir() {
+  const dir = path.join(electron.app.getPath("userData"), "evidence");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function getMediaMTXDir() {
+  if (isDev) {
+    return path.join(__dirname, "..", "mediamtx");
+  }
+  return path.join(process.resourcesPath, "mediamtx");
+}
+function getBinDir() {
+  if (isDev) {
+    return path.join(__dirname, "..", "..", "..", "bin");
+  }
+  return path.join(process.resourcesPath, "bin");
+}
+function buildChildEnv(extra = {}) {
+  const binDir = getBinDir();
+  const pathSep = process.platform === "win32" ? ";" : ":";
+  const existingPath = process.env.PATH || process.env.Path || "";
+  return {
+    ...process.env,
+    PATH: `${binDir}${pathSep}${existingPath}`,
+    FFMPEG_PATH: path.join(binDir, "ffmpeg.exe"),
+    MEDIAMTX_PATH: path.join(getMediaMTXDir(), "mediamtx.exe"),
+    ...extra
+  };
+}
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port, "127.0.0.1");
+  });
+}
+async function startBackend() {
+  var _a, _b;
+  if (!await isPortAvailable(BACKEND_PORT)) {
+    console.log(`Backend already running on port ${BACKEND_PORT}`);
+    return;
+  }
+  const backendDir = getBackendDir();
+  const scriptPath = path.join(backendDir, "dist", "main.js");
+  if (!fs.existsSync(scriptPath)) {
+    console.error(`Backend script not found: ${scriptPath}`);
+    return;
+  }
+  console.log(`Starting backend: ${scriptPath}`);
+  backendProcess = child_process.spawn(process.execPath, [scriptPath], {
+    cwd: backendDir,
+    env: buildChildEnv({
+      ELECTRON_RUN_AS_NODE: "1",
+      DATABASE_PATH: path.join(getDataDir(), "security-ai.db"),
+      EVIDENCE_DIR: getEvidenceDir(),
+      BACKEND_PORT: String(BACKEND_PORT),
+      AI_SERVICE_HOST: "127.0.0.1",
+      AI_SERVICE_PORT: String(AI_PORT)
+    }),
+    stdio: "pipe"
+  });
+  (_a = backendProcess.stdout) == null ? void 0 : _a.on("data", (data) => {
+    console.log(`[Backend] ${data.toString().trim()}`);
+  });
+  (_b = backendProcess.stderr) == null ? void 0 : _b.on("data", (data) => {
+    console.error(`[Backend] ${data.toString().trim()}`);
+  });
+  backendProcess.on("exit", (code) => {
+    console.log(`Backend exited with code ${code}`);
+    backendProcess = null;
+  });
+}
+async function startAiService() {
+  var _a, _b;
+  if (!await isPortAvailable(AI_PORT)) {
+    console.log(`AI Service already running on port ${AI_PORT}`);
+    return;
+  }
+  const aiDir = getAiDir();
+  if (isDev) {
+    const scriptPath = path.join(aiDir, "main.py");
+    console.log(`Starting AI service (dev): ${scriptPath}`);
+    aiProcess = child_process.spawn("python", [
+      "-m",
+      "uvicorn",
+      "main:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(AI_PORT)
+    ], {
+      cwd: aiDir,
+      env: buildChildEnv({
+        AI_SERVICE_PORT: String(AI_PORT),
+        AI_SERVICE_HOST: "127.0.0.1",
+        BACKEND_URL: `http://127.0.0.1:${BACKEND_PORT}`,
+        EVIDENCE_DIR: getEvidenceDir()
+      }),
+      stdio: "pipe"
+    });
+  } else {
+    const exePath = path.join(aiDir, "security-ai-service.exe");
+    if (!fs.existsSync(exePath)) {
+      console.error(`AI service executable not found: ${exePath}`);
+      return;
+    }
+    console.log(`Starting AI service (production): ${exePath}`);
+    aiProcess = child_process.spawn(exePath, [], {
+      cwd: aiDir,
+      env: buildChildEnv({
+        AI_SERVICE_PORT: String(AI_PORT),
+        AI_SERVICE_HOST: "127.0.0.1",
+        BACKEND_URL: `http://127.0.0.1:${BACKEND_PORT}`,
+        EVIDENCE_DIR: getEvidenceDir()
+      }),
+      stdio: "pipe"
+    });
+  }
+  (_a = aiProcess.stdout) == null ? void 0 : _a.on("data", (data) => {
+    console.log(`[AI] ${data.toString().trim()}`);
+  });
+  (_b = aiProcess.stderr) == null ? void 0 : _b.on("data", (data) => {
+    console.error(`[AI] ${data.toString().trim()}`);
+  });
+  aiProcess.on("exit", (code) => {
+    console.log(`AI Service exited with code ${code}`);
+    aiProcess = null;
+  });
+}
+async function startMediaMTX() {
+  var _a, _b;
+  if (!await isPortAvailable(MEDIAMTX_PORT)) {
+    console.log(`MediaMTX already running on port ${MEDIAMTX_PORT}`);
+    return;
+  }
+  const mediaDir = getMediaMTXDir();
+  const exePath = path.join(mediaDir, "mediamtx.exe");
+  const configPath = path.join(mediaDir, "mediamtx.yml");
+  if (!fs.existsSync(exePath)) {
+    console.error(`MediaMTX not found: ${exePath}`);
+    return;
+  }
+  if (!fs.existsSync(configPath)) {
+    console.error(`MediaMTX config not found: ${configPath}`);
+    return;
+  }
+  console.log(`Starting MediaMTX: ${exePath}`);
+  mediamtxProcess = child_process.spawn(exePath, [configPath], {
+    cwd: mediaDir,
+    env: { ...process.env },
+    stdio: "pipe"
+  });
+  (_a = mediamtxProcess.stdout) == null ? void 0 : _a.on("data", (data) => {
+    console.log(`[MediaMTX] ${data.toString().trim()}`);
+  });
+  (_b = mediamtxProcess.stderr) == null ? void 0 : _b.on("data", (data) => {
+    console.error(`[MediaMTX] ${data.toString().trim()}`);
+  });
+  mediamtxProcess.on("exit", (code) => {
+    console.log(`MediaMTX exited with code ${code}`);
+    mediamtxProcess = null;
+  });
+}
+function waitForService(port, timeoutMs = 3e4) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      const client = net.createConnection(port, "127.0.0.1");
+      client.once("connect", () => {
+        client.end();
+        resolve(true);
+      });
+      client.once("error", () => {
+        client.destroy();
+        if (Date.now() - start > timeoutMs) {
+          resolve(false);
+        } else {
+          setTimeout(check, 1e3);
+        }
+      });
+    };
+    check();
+  });
+}
+function createWindow() {
+  mainWindow = new electron.BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 700,
+    title: "Security AI",
+    backgroundColor: "#030712",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  if (isDev) {
+    mainWindow.loadURL("http://localhost:5173");
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+}
+electron.app.whenReady().then(async () => {
+  console.log("Security AI starting...");
+  console.log(`Mode: ${isDev ? "development" : "production"}`);
+  electron.ipcMain.handle("open-file-dialog", async (_event, options) => {
+    const result = await electron.dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      filters: (options == null ? void 0 : options.filters) || [
+        { name: "Videos", extensions: ["mp4", "avi", "mkv", "webm"] },
+        { name: "Todos", extensions: ["*"] }
+      ]
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
+  electron.ipcMain.handle("list-usb-devices", async () => {
+    const { listUsbDevices } = await Promise.resolve().then(() => require("./usb-devices-CNFU4E-w.js"));
+    return listUsbDevices();
+  });
+  createWindow();
+  startBackend().catch((e) => console.error("Backend start error:", e));
+  startAiService().catch((e) => console.error("AI start error:", e));
+  startMediaMTX().catch((e) => console.error("MediaMTX start error:", e));
+  const backendReady = await waitForService(BACKEND_PORT, 15e3);
+  console.log(`Backend: ${backendReady ? "READY" : "TIMEOUT"}`);
+  const aiReady = await waitForService(AI_PORT, 6e4);
+  console.log(`AI Service: ${aiReady ? "READY" : "TIMEOUT"}`);
+  const mediaReady = await waitForService(MEDIAMTX_PORT, 1e4);
+  console.log(`MediaMTX: ${mediaReady ? "READY" : "TIMEOUT"}`);
+});
+function killProcess(proc, name) {
+  if (!proc) return null;
+  if (process.platform === "win32" && proc.pid) {
+    try {
+      child_process.spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      proc.kill();
+    }
+  } else {
+    proc.kill();
+  }
+  console.log(`${name} stopped`);
+  return null;
+}
+function killProcesses() {
+  mediamtxProcess = killProcess(mediamtxProcess, "MediaMTX");
+  aiProcess = killProcess(aiProcess, "AI Service");
+  backendProcess = killProcess(backendProcess, "Backend");
+}
+electron.app.on("window-all-closed", () => {
+  killProcesses();
+  if (process.platform !== "darwin") {
+    electron.app.quit();
+  }
+});
+electron.app.on("activate", () => {
+  if (electron.BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+electron.app.on("before-quit", () => {
+  killProcesses();
+});

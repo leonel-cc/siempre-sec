@@ -1,1 +1,10 @@
-"use strict";const e=require("electron");e.contextBridge.exposeInMainWorld("electronAPI",{platform:process.platform,minimize:()=>e.ipcRenderer.send("window-minimize"),maximize:()=>e.ipcRenderer.send("window-maximize"),close:()=>e.ipcRenderer.send("window-close"),openFileDialog:i=>e.ipcRenderer.invoke("open-file-dialog",i||{}),listUsbDevices:()=>e.ipcRenderer.invoke("list-usb-devices")});
+"use strict";
+const electron = require("electron");
+electron.contextBridge.exposeInMainWorld("electronAPI", {
+  platform: process.platform,
+  minimize: () => electron.ipcRenderer.send("window-minimize"),
+  maximize: () => electron.ipcRenderer.send("window-maximize"),
+  close: () => electron.ipcRenderer.send("window-close"),
+  openFileDialog: (options) => electron.ipcRenderer.invoke("open-file-dialog", options || {}),
+  listUsbDevices: () => electron.ipcRenderer.invoke("list-usb-devices")
+});

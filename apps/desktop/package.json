@@ -7,7 +7,7 @@
   "author": "Security AI Team",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.js",
     "build": "tsc && vite build",
     "build:win": "node scripts/build-bundle.js && electron-builder --win",
     "build:portable": "node scripts/build-bundle.js && electron-builder --win portable",
