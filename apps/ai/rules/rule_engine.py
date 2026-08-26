@@ -96,7 +96,7 @@ DEFAULT_RULES = [
         "enabled": True,
         "severity": "MEDIUM",
         "conditions": [
-            {"field": "trajectory_anomaly", "operator": "greater_than", "value": 0.7},
+            {"field": "trajectory_anomaly", "operator": "greater_than", "value": 0.85},
         ],
         "actions": ["CREATE_ALERT"],
     },
@@ -117,6 +117,7 @@ class RuleEngine:
     def __init__(self, tracker: Optional['ObjectTracker'] = None):
         self.rules: List[Dict] = []
         self.cooldowns: Dict[str, float] = {}
+        self._camera_cooldowns: Dict[str, float] = {}
         self._tracker = tracker
 
     def load_rules(self, rules: List[Dict]):
@@ -137,6 +138,9 @@ class RuleEngine:
     ) -> Optional[Dict]:
         now = datetime.now()
         current_time = now.time()
+
+        if self._is_camera_cooldown_active(camera_id):
+            return None
 
         person_detections = [d for d in detections if d["class"] == "person"]
         if not person_detections:
@@ -189,6 +193,7 @@ class RuleEngine:
                 if self._evaluate_conditions(rule.get("conditions", []), context):
                     if self._check_schedule(rule.get("schedule"), current_time, now):
                         self._set_cooldown(rule["id"], camera_id, tracking_id)
+                        self._set_camera_cooldown(camera_id)
                         return {
                             "rule_id": rule["id"],
                             "rule_name": rule["name"],
@@ -269,6 +274,29 @@ class RuleEngine:
     def _set_cooldown(self, rule_id: str, camera_id: str, tracking_id):
         key = f"{rule_id}:{camera_id}:{tracking_id}"
         self.cooldowns[key] = datetime.now().timestamp()
+
+    def _is_camera_cooldown_active(self, camera_id: str) -> bool:
+        last = self._camera_cooldowns.get(camera_id)
+        if last:
+            elapsed = datetime.now().timestamp() - last
+            return elapsed < config.ALERT_GLOBAL_COOLDOWN_SECONDS
+        return False
+
+    def _set_camera_cooldown(self, camera_id: str):
+        self._camera_cooldowns[camera_id] = datetime.now().timestamp()
+        self._prune_cooldowns()
+
+    def _prune_cooldowns(self):
+        now = datetime.now().timestamp()
+        max_ttl = max(config.ALERT_COOLDOWN_SECONDS, config.ALERT_GLOBAL_COOLDOWN_SECONDS) + 60
+        self.cooldowns = {
+            k: v for k, v in self.cooldowns.items()
+            if now - v < max_ttl
+        }
+        self._camera_cooldowns = {
+            k: v for k, v in self._camera_cooldowns.items()
+            if now - v < max_ttl
+        }
 
     def _get_presence_duration(self, tracking_id, camera_id) -> float:
         if self._tracker is not None and tracking_id is not None:

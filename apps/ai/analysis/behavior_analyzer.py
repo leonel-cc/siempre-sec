@@ -9,7 +9,7 @@ class BehaviorAnalyzer:
             "running": config.SPEED_RUNNING_THRESHOLD,
             "sprinting": config.SPEED_SPRINTING_THRESHOLD,
         }
-        self.aspect_ratio_fall_threshold = 1.5
+        self.aspect_ratio_fall_threshold = 2.0
 
     def analyze(self, detection: Dict, tracker) -> Dict:
         tid = detection.get("tracking_id")
