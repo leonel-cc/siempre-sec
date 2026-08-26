@@ -156,11 +156,18 @@ export default function PolygonEditor({
       </div>
 
       <div className="relative border border-gray-700 rounded overflow-hidden">
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            className="absolute inset-0 w-full h-full object-contain"
+            alt="Vista de cámara"
+          />
+        )}
         <canvas
           ref={canvasRef}
           width={width}
           height={height}
-          className="w-full cursor-crosshair"
+          className="relative w-full cursor-crosshair"
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
         />
