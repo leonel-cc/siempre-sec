@@ -1,18 +1,45 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { AiClientService } from '../ai/ai-client.service';
 import { Rule } from './entities/rule.entity';
-import { CreateRuleDto } from '@security-ai/shared';
+
+const FIXED_RULES = [
+  {
+    code: 'WEAPON_DETECTED',
+    name: 'Arma o cuchillo detectado',
+    description: 'Alerta por arma de fuego o cuchillo confirmado en varios cuadros.',
+    priority: 1,
+    actions: ['CREATE_ALERT', 'SEND_NOTIFICATION'],
+    cooldownSeconds: 0,
+  },
+  {
+    code: 'FACE_COVERED',
+    name: 'Rostro cubierto detectado',
+    description: 'Alerta por rostro cubierto confirmado en varios cuadros.',
+    priority: 2,
+    actions: ['CREATE_ALERT', 'SEND_NOTIFICATION'],
+    cooldownSeconds: 0,
+  },
+];
 
 @Injectable()
-export class RulesService {
+export class RulesService implements OnModuleInit {
   constructor(
     @InjectRepository(Rule)
     private readonly ruleRepo: Repository<Rule>,
+    private readonly aiClient: AiClientService,
   ) {}
 
+  async onModuleInit() {
+    await this.ensureDefaults();
+  }
+
   async findAll(): Promise<Rule[]> {
-    return this.ruleRepo.find({ order: { priority: 'ASC', createdAt: 'DESC' } });
+    await this.ensureDefaults();
+    const rules = await this.ruleRepo.find({ order: { priority: 'ASC' } });
+    await this.syncRules(rules);
+    return rules;
   }
 
   async findOne(id: string): Promise<Rule> {
@@ -21,35 +48,37 @@ export class RulesService {
     return rule;
   }
 
-  async create(dto: CreateRuleDto): Promise<Rule> {
-    const rule = this.ruleRepo.create({
-      name: dto.name,
-      description: dto.description || '',
-      enabled: dto.enabled ?? true,
-      priority: dto.priority || 0,
-      conditions: JSON.stringify(dto.conditions),
-      actions: JSON.stringify(dto.actions),
-      schedule: dto.schedule ? JSON.stringify(dto.schedule) : undefined,
-      cooldownSeconds: dto.cooldown_seconds || 60,
-    });
-    return this.ruleRepo.save(rule);
-  }
-
-  async update(id: string, dto: Partial<CreateRuleDto>): Promise<Rule> {
+  async update(id: string, dto: { enabled?: boolean }): Promise<Rule> {
     const rule = await this.findOne(id);
-    if (dto.name) rule.name = dto.name;
-    if (dto.description !== undefined) rule.description = dto.description;
     if (dto.enabled !== undefined) rule.enabled = dto.enabled;
-    if (dto.priority !== undefined) rule.priority = dto.priority;
-    if (dto.conditions) rule.conditions = JSON.stringify(dto.conditions);
-    if (dto.actions) rule.actions = JSON.stringify(dto.actions);
-    if (dto.schedule) rule.schedule = JSON.stringify(dto.schedule);
-    if (dto.cooldown_seconds !== undefined) rule.cooldownSeconds = dto.cooldown_seconds;
-    return this.ruleRepo.save(rule);
+    const saved = await this.ruleRepo.save(rule);
+    await this.syncRules();
+    return saved;
   }
 
-  async remove(id: string): Promise<void> {
-    const rule = await this.findOne(id);
-    await this.ruleRepo.remove(rule);
+  async syncRules(existing?: Rule[]) {
+    const rules = existing || await this.ruleRepo.find({ order: { priority: 'ASC' } });
+    return this.aiClient.setRules(rules.map(rule => ({
+      id: rule.code.toLowerCase(),
+      enabled: rule.enabled,
+    })));
+  }
+
+  private async ensureDefaults() {
+    const allowedCodes = new Set(FIXED_RULES.map(rule => rule.code));
+    const obsoleteRules = (await this.ruleRepo.find())
+      .filter(rule => !rule.code || !allowedCodes.has(rule.code));
+    if (obsoleteRules.length) await this.ruleRepo.remove(obsoleteRules);
+
+    for (const fixed of FIXED_RULES) {
+      const existing = await this.ruleRepo.findOne({ where: { code: fixed.code } });
+      if (existing) continue;
+      await this.ruleRepo.save(this.ruleRepo.create({
+        ...fixed,
+        enabled: true,
+        conditions: '[]',
+        actions: JSON.stringify(fixed.actions),
+      }));
+    }
   }
 }

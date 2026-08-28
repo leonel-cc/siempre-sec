@@ -37,7 +37,7 @@ export class AiClientService {
     return this.request<Record<string, unknown>>('/stats');
   }
 
-  async addFileSource(sourceId: string, filePath: string, loop = true, targetFps = 25) {
+  async addFileSource(sourceId: string, filePath: string, loop = true, targetFps = 30) {
     return this.request(`/sources/file`, {
       method: 'POST',
       body: JSON.stringify({
@@ -67,7 +67,7 @@ export class AiClientService {
     );
   }
 
-  async addUsbSource(sourceId: string, deviceIndex: number, targetFps = 25) {
+  async addUsbSource(sourceId: string, deviceIndex: number, targetFps = 30) {
     return this.request(`/sources/usb`, {
       method: 'POST',
       body: JSON.stringify({
@@ -130,6 +130,23 @@ export class AiClientService {
         camera_id: cameraId,
         zones,
       }),
+    });
+  }
+
+  async resolveUsbDeviceIndex(cameraName: string, rtspUrl: string): Promise<number> {
+    const configuredIndex = parseInt(rtspUrl.replace('device://', ''), 10);
+    const result = await this.listUsbDevices();
+    const matchingDevice = result?.devices.find(
+      (device) => device.name.trim().toLowerCase() === cameraName.trim().toLowerCase(),
+    );
+    if (matchingDevice) return matchingDevice.index;
+    return Number.isFinite(configuredIndex) ? configuredIndex : 0;
+  }
+
+  async setRules(rules: Array<{ id: string; enabled: boolean }>) {
+    return this.request<{ status: string; count: number }>('/rules', {
+      method: 'POST',
+      body: JSON.stringify({ rules }),
     });
   }
 }

@@ -67,7 +67,7 @@ export default function Zones() {
           </div>
           {selectedCamera && (
             <PolygonEditor
-              imageUrl={`${AI_BASE}/sources/${selectedCamera}/stream`}
+              imageUrl={`${AI_BASE}/sources/${selectedCamera}/stream?view=raw`}
               width={1280} height={720}
               onZoneCreated={handleZoneCreated}
             />

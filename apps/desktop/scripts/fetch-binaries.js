@@ -14,6 +14,7 @@ const https = require('https');
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const MEDIAMTX_DIR = path.join(ROOT, 'apps', 'desktop', 'mediamtx');
 const BIN_DIR = path.join(ROOT, 'apps', 'desktop', 'bin');
+const MODELS_DIR = path.join(ROOT, 'apps', 'desktop', 'models');
 const TEMP_DIR = path.join(require('os').tmpdir(), 'security-ai-binaries');
 const PINNED_MEDIAMTX_VERSION = 'v1.12.0';
 
@@ -145,11 +146,43 @@ async function fetchFFmpeg() {
   log(`FFmpeg ready: ${target}`);
 }
 
+async function fetchModels() {
+  const models = [
+    {
+      name: 'weapon-best.pt',
+      url: 'https://huggingface.co/Hadi959/weapon-detection-yolov8/resolve/1c7397a7f9268ed60611650cdad936e306a3dc04/best.pt',
+    },
+    {
+      name: 'weapon-verifier.pt',
+      url: 'https://huggingface.co/Subh775/Threat-Detection-YOLOv8n/resolve/c6d6fa4e6c9bfd4c4fccb46478db23609e5468fb/weights/best.pt',
+    },
+    {
+      name: 'face-cover-best.pt',
+      url: 'https://raw.githubusercontent.com/STAVAN04/face_covered_or_uncovered_detection/1791c6e7deee9c1d0092341ceff605eab196687d/best.pt',
+    },
+    {
+      name: 'face-detection-yunet.onnx',
+      url: 'https://raw.githubusercontent.com/opencv/opencv_zoo/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/face_detection_yunet_2023mar.onnx',
+    },
+  ];
+  fs.mkdirSync(MODELS_DIR, { recursive: true });
+  for (const model of models) {
+    const target = path.join(MODELS_DIR, model.name);
+    if (fs.existsSync(target)) {
+      log(`${model.name} already present, skipping`);
+      continue;
+    }
+    log(`Downloading ${model.name}...`);
+    await downloadFile(model.url, target);
+  }
+}
+
 (async () => {
   try {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
     await fetchMediaMTX();
     await fetchFFmpeg();
+    await fetchModels();
     log('All binaries ready');
   } catch (e) {
     console.error('[fetch-binaries] FAILED:', e.message);

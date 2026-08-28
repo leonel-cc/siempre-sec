@@ -24,6 +24,7 @@ class ObjectTracker:
 
     def update(self, detections: List[Dict]) -> List[Dict]:
         current_ids = set()
+        assigned_ids = set()
         matched = []
 
         for detection in detections:
@@ -39,6 +40,8 @@ class ObjectTracker:
             best_distance = float("inf")
 
             for obj_id, obj in self.tracked_objects.items():
+                if obj_id in assigned_ids:
+                    continue
                 if obj.class_name != detection["class"]:
                     continue
                 last_pos = obj.positions[-1] if obj.positions else {"x": 0, "y": 0}
@@ -54,10 +57,12 @@ class ObjectTracker:
                 obj.confidence = detection["confidence"]
                 obj.last_seen = now
                 obj.positions.append(center)
+                obj.disappeared = 0
                 if len(obj.positions) > 50:
                     obj.positions = obj.positions[-50:]
                 detection["tracking_id"] = best_id
                 current_ids.add(best_id)
+                assigned_ids.add(best_id)
             else:
                 new_id = self.next_id
                 self.next_id += 1
@@ -72,6 +77,7 @@ class ObjectTracker:
                 )
                 detection["tracking_id"] = new_id
                 current_ids.add(new_id)
+                assigned_ids.add(new_id)
 
             matched.append(detection)
 

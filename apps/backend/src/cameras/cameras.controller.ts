@@ -11,6 +11,7 @@ import {
 import { CamerasService } from './cameras.service';
 import { AiClientService } from '../ai/ai-client.service';
 import { ZonesService } from '../zones/zones.service';
+import { RulesService } from '../rules/rules.service';
 import { CreateCameraDto, UpdateCameraDto, ConnectionType } from '@security-ai/shared';
 
 @Controller('cameras')
@@ -19,6 +20,7 @@ export class CamerasController {
     private readonly camerasService: CamerasService,
     private readonly aiClient: AiClientService,
     private readonly zonesService: ZonesService,
+    private readonly rulesService: RulesService,
   ) {}
 
   @Get()
@@ -58,8 +60,9 @@ export class CamerasController {
     const camera = await this.camerasService.findOne(id);
     let result;
     if (camera.connectionType === ConnectionType.WEBCAM) {
-      const deviceIndex = parseInt(camera.rtspUrl.replace('device://', ''), 10);
-      result = await this.aiClient.addUsbSource(camera.id, Number.isFinite(deviceIndex) ? deviceIndex : 0);
+      const deviceIndex = await this.aiClient.resolveUsbDeviceIndex(
+        camera.name, camera.rtspUrl);
+      result = await this.aiClient.addUsbSource(camera.id, deviceIndex);
     } else {
       result = await this.aiClient.addRtspSource(
         camera.id,
@@ -69,6 +72,7 @@ export class CamerasController {
       );
     }
     if (result) {
+      await this.rulesService.syncRules();
       await this.camerasService.updateStatus(id, 'ONLINE');
 
       const zones = await this.zonesService.findByCamera(id);

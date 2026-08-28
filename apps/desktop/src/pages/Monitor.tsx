@@ -14,6 +14,7 @@ export default function Monitor() {
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [readyMap, setReadyMap] = useState<Record<string, boolean>>({});
+  const [showPeople, setShowPeople] = useState(false);
 
   useEffect(() => {
     loadCameras();
@@ -25,6 +26,8 @@ export default function Monitor() {
       const online = data.filter((c: any) => c.status === 'ONLINE');
       setCameras(data);
       setSelected(online.slice(0, 4).map((c: any) => c.id));
+      const settings = await api.settings.getSection('ai');
+      setShowPeople(Boolean(settings.show_people_overlay));
     } catch (e) {
       console.error(e);
     }
@@ -95,7 +98,7 @@ export default function Monitor() {
             </div>
             <div className="relative bg-black aspect-video flex items-center justify-center">
               <img
-                src={`${AI_BASE}/sources/${camId}/stream`}
+                src={`${AI_BASE}/sources/${camId}/stream?view=annotated&show_people=${showPeople}`}
                 alt={getCameraName(camId)}
                 className="max-w-full max-h-full"
                 onLoad={() => markReady(camId)}

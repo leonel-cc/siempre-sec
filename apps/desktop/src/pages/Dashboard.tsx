@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, BACKEND_URL } from '../lib/api';
+import { api, API_BASE } from '../lib/api';
 import { onEvent } from '../lib/websocket';
 import { Spinner, CardSkeleton } from '../components/Loading';
 
@@ -62,7 +62,7 @@ export default function Dashboard() {
   const online = cameras.filter(c => c.status === 'ONLINE').length;
   const offline = cameras.filter(c => c.status === 'OFFLINE' || c.status === 'ERROR').length;
   const newEvents = events.filter(e => e.status === 'NEW').length;
-  const alerts = events.filter(e => ['SECURITY_ALERT', 'RESTRICTED_ZONE', 'UNKNOWN_PERSON'].includes(e.event_type)).length;
+  const alerts = events.filter(e => ['WEAPON_DETECTED', 'FACE_COVERED'].includes(e.event_type || e.eventType)).length;
 
   const criticalAlerts = realtimeAlerts.filter(a => a.severity === 'CRITICAL').length;
   const overallThreat = criticalAlerts > 0 ? 'CRITICAL' :
@@ -163,7 +163,7 @@ export default function Dashboard() {
                     <span className={`w-1.5 h-1.5 rounded-full ${
                       event.status === 'NEW' ? 'bg-yellow-500' : 'bg-gray-600'
                     }`} />
-                    <span className="text-gray-300">{event.event_type}</span>
+                    <span className="text-gray-300">{event.event_type || event.eventType}</span>
                     <span className="text-gray-600 text-xs">{event.camera?.name || ''}</span>
                   </div>
                   <span className="text-gray-600 text-xs">
@@ -203,14 +203,14 @@ export default function Dashboard() {
                         <div className="mt-2 space-y-2">
                           {snapshotFile && (
                             <img
-                              src={`${BACKEND_URL}/evidence/${snapshotFile}`}
+                              src={`${API_BASE}/evidence/${snapshotFile}`}
                               alt={`Snapshot ${alert.camera_name || alert.camera_id || ''}`}
                               className="w-full rounded border border-white/10"
                             />
                           )}
                           {videoFile && (
                             <video
-                              src={`${BACKEND_URL}/evidence/${videoFile}`}
+                              src={`${API_BASE}/evidence/${videoFile}`}
                               controls
                               className="w-full rounded border border-white/10"
                             />

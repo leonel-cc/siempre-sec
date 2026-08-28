@@ -76,6 +76,7 @@ installer/staging/
 apps/desktop/backend/
 apps/desktop/ai/
 apps/desktop/bin/
+apps/desktop/models/
 apps/ai/dist/
 apps/ai/build/
 apps/ai/*.spec

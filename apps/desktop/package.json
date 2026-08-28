@@ -65,6 +65,10 @@
       {
         "from": "bin",
         "to": "bin"
+      },
+      {
+        "from": "models",
+        "to": "models"
       }
     ],
     "win": {

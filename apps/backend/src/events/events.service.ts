@@ -62,19 +62,26 @@ export class EventsService {
       confidence: saved.confidence,
     });
 
-    const isSecurityAlert = ['SECURITY_ALERT', 'RESTRICTED_ZONE', 'UNKNOWN_PERSON'].includes(saved.eventType);
+    const isSecurityAlert = ['WEAPON_DETECTED', 'FACE_COVERED'].includes(saved.eventType);
     if (isSecurityAlert) {
+      let metadata: Record<string, any> = {};
+      try {
+        metadata = saved.metadata ? JSON.parse(saved.metadata) : {};
+      } catch {}
       this.websocketGateway.broadcastAlert({
         id: saved.id,
         event_type: saved.eventType,
         camera_id: saved.cameraId,
         timestamp: saved.timestamp,
-        message: `Alerta de seguridad: ${saved.eventType}`,
+        message: saved.eventType === 'WEAPON_DETECTED'
+          ? 'Arma o cuchillo detectado'
+          : 'Rostro cubierto detectado',
         confidence: saved.confidence,
         video_path: saved.videoPath,
         snapshot_path: saved.snapshotPath,
-        severity: saved.metadata ? JSON.parse(saved.metadata).severity : 'MEDIUM',
-        rule_name: saved.metadata ? JSON.parse(saved.metadata).rule_name : '',
+        severity: metadata.severity || 'HIGH',
+        rule_name: metadata.rule_name || '',
+        threat_class: metadata.threat_class,
       });
 
       let cameraName = 'Desconocida';
@@ -84,7 +91,9 @@ export class EventsService {
       } catch {}
 
       this.notificationsService.send({
-        title: saved.eventType,
+        title: saved.eventType === 'WEAPON_DETECTED'
+          ? 'Arma o cuchillo detectado'
+          : 'Rostro cubierto detectado',
         message: `Confianza: ${(saved.confidence * 100).toFixed(1)}%`,
         cameraName,
         timestamp: saved.timestamp || new Date().toISOString(),

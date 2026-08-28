@@ -16,7 +16,7 @@ class SourceStatus(Enum):
 
 
 class VideoSource(ABC):
-    def __init__(self, source_id: str, target_fps: int = 25):
+    def __init__(self, source_id: str, target_fps: int = 30):
         self.source_id = source_id
         self.target_fps = target_fps
         self.status = SourceStatus.IDLE

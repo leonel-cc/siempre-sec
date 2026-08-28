@@ -7,7 +7,7 @@ from .base import VideoSource
 class RTSPVideoSource(VideoSource):
     def __init__(self, source_id: str, rtsp_url: str,
                  username: str = '', password: str = '',
-                 target_fps: int = 25):
+                 target_fps: int = 30):
         super().__init__(source_id, target_fps)
         self.rtsp_url = rtsp_url
         self.username = username

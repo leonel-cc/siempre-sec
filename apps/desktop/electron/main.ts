@@ -47,6 +47,11 @@ function getEvidenceDir(): string {
   return dir;
 }
 
+function getModelDir(): string {
+  if (isDev) return path.join(__dirname, '..', 'models');
+  return path.join(process.resourcesPath, 'models');
+}
+
 function getMediaMTXDir(): string {
   if (isDev) {
     return path.join(__dirname, '..', 'mediamtx');
@@ -56,7 +61,7 @@ function getMediaMTXDir(): string {
 
 function getBinDir(): string {
   if (isDev) {
-    return path.join(__dirname, '..', '..', '..', 'bin');
+    return path.join(__dirname, '..', 'bin');
   }
   return path.join(process.resourcesPath, 'bin');
 }
@@ -69,7 +74,8 @@ function buildChildEnv(extra: Record<string, string> = {}): Record<string, strin
     ...process.env,
     PATH: `${binDir}${pathSep}${existingPath}`,
     FFMPEG_PATH: path.join(binDir, 'ffmpeg.exe'),
-    MEDIAMTX_PATH: path.join(getMediaMTXDir(), 'mediamtx.exe'),
+      MEDIAMTX_PATH: path.join(getMediaMTXDir(), 'mediamtx.exe'),
+      MODEL_DIR: getModelDir(),
     ...extra,
   };
 }

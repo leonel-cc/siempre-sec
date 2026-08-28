@@ -19,7 +19,14 @@ class YoloDetector:
         if self.model is None:
             self.load_model()
 
-        results = self.model(frame, verbose=False)
+        results = self.model(
+            frame,
+            verbose=False,
+            conf=min(
+                self.confidence_threshold,
+                config.WEAPON_VETO_CONFIDENCE,
+            ),
+        )
         detections = []
 
         for result in results:
@@ -35,7 +42,12 @@ class YoloDetector:
                     continue
 
                 confidence = float(box.conf[0])
-                if confidence < self.confidence_threshold:
+                threshold = (
+                    config.WEAPON_VETO_CONFIDENCE
+                    if class_name in config.WEAPON_VETO_CLASSES
+                    else self.confidence_threshold
+                )
+                if confidence < threshold:
                     continue
 
                 x1, y1, x2, y2 = box.xyxy[0].tolist()

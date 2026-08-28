@@ -16,7 +16,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(error.message || 'API request failed');
   }
 
-  return response.json();
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {

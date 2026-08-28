@@ -76,17 +76,19 @@ def _on_alert(camera_id, alert, clip_path, snapshot_path=""):
 
     event_data = {
         'camera_id': camera_id,
-        'event_type': 'SECURITY_ALERT',
+        'event_type': alert.get('event_type'),
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
-        'confidence': alert.get('detection', {}).get('confidence', 0.0),
+        'confidence': alert.get('evidence', {}).get('confidence', 0.0),
+        'tracking_id': alert.get('tracking_id'),
         'video_path': clip_path,
         'snapshot_path': snapshot_path,
         'metadata': {
             'rule_id': alert.get('rule_id'),
             'rule_name': alert.get('rule_name'),
             'severity': alert.get('severity'),
-            'identity': alert.get('identity'),
-            'zone_type': alert.get('zone_type'),
+            'threat_class': alert.get('evidence', {}).get('class'),
+            'confirmation_count': alert.get('confirmation_count'),
+            'confirmation_window': alert.get('confirmation_window'),
             'actions': alert.get('actions', []),
         },
     }
