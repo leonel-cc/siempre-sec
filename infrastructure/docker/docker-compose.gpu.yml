@@ -1,0 +1,20 @@
+services:
+  ai-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.ai.gpu
+    environment:
+      - AI_DEVICE=cuda
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import json,urllib.request; d=json.load(urllib.request.urlopen('http://localhost:5000/health')); assert d['status']=='ok' and d['runtime']['device'].startswith('cuda')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

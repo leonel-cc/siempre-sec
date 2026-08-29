@@ -1,25 +1,65 @@
 import numpy as np
+import threading
+import time
 from typing import List, Dict, Optional
 from ultralytics import YOLO
 import config
+from runtime import InferenceRuntime, LatencyTracker
 
 
 class YoloDetector:
-    def __init__(self, model_path: str = None):
+    def __init__(self, model_path: str = None, runtime: InferenceRuntime = None):
         self.model_path = model_path or config.YOLO_MODEL
         self.confidence_threshold = config.YOLO_CONFIDENCE_THRESHOLD
         self.enabled_classes = config.DETECTION_CLASSES
         self.model: Optional[YOLO] = None
+        self._lock = threading.Lock()
+        self.runtime = runtime or InferenceRuntime()
+        self.device = self.runtime.device
+        self.latency = LatencyTracker()
 
     def load_model(self):
         self.model = YOLO(self.model_path)
-        print(f"YOLO model loaded: {self.model_path}")
+        try:
+            self.model.to(self.device)
+        except Exception as exc:
+            if self.device == "cpu":
+                raise
+            self.runtime.fallback_to_cpu("objects", exc)
+            self.device = "cpu"
+            self.model.to("cpu")
+        self.runtime.report_component("objects", self.device)
+        print(f"YOLO model loaded on {self.device}: {self.model_path}")
 
     def detect(self, frame: np.ndarray) -> List[Dict]:
         if self.model is None:
             self.load_model()
 
-        results = self.model(frame, verbose=False)
+        started = time.perf_counter()
+        try:
+            with self._lock:
+                try:
+                    results = self.model.predict(
+                        source=frame,
+                        verbose=False,
+                        conf=self.confidence_threshold,
+                        device=self.device,
+                    )
+                except Exception as exc:
+                    if self.device == "cpu":
+                        raise
+                    self.runtime.fallback_to_cpu("objects", exc)
+                    self.device = "cpu"
+                    self.model.to("cpu")
+                    results = self.model.predict(
+                        source=frame,
+                        verbose=False,
+                        conf=self.confidence_threshold,
+                        device="cpu",
+                    )
+        finally:
+            self.latency.record((time.perf_counter() - started) * 1000)
+        self.runtime.report_component("objects", self.device)
         detections = []
 
         for result in results:
@@ -51,6 +91,22 @@ class YoloDetector:
                 })
 
         return detections
+
+    def get_status(self) -> Dict:
+        return {
+            "loaded": self.model is not None,
+            "model": self.model_path,
+            "device": self.runtime.get_component_device("objects"),
+            "latency": self.latency.snapshot(),
+        }
+
+    def warmup(self):
+        self.detect(np.zeros(
+            (config.WARMUP_FRAME_HEIGHT, config.WARMUP_FRAME_WIDTH, 3),
+            dtype=np.uint8,
+        ))
+        self.latency.clear()
+        print(f"YOLO warmup complete on {self.device}")
 
     def detect_and_annotate(self, frame: np.ndarray) -> tuple:
         detections = self.detect(frame)

@@ -21,7 +21,7 @@ class VideoBuffer:
     def add_frame(self, camera_id: str, frame):
         with self.lock:
             if camera_id not in self.buffers:
-                self.create_buffer(camera_id)
+                self.buffers[camera_id] = deque(maxlen=self.max_frames)
             self.buffers[camera_id].append((time.time(), frame.copy()))
 
     def get_pre_event_frames(self, camera_id: str, seconds: int = None):

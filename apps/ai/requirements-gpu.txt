@@ -1,0 +1,2 @@
+# Install after requirements.txt. setup_gpu.py handles replacing CPU runtimes.
+onnxruntime-gpu==1.18.0

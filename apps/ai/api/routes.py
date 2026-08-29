@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import asyncio
@@ -76,10 +76,37 @@ def _get_processor():
 async def health():
     from main import get_processor
     p = get_processor()
-    return {
-        "status": "ok" if p else "starting",
-        "models_loaded": p.yolo_detector.model is not None if p else False,
+    if not p:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "models_loaded": False, "models": {}},
+        )
+    yolo_loaded = p.yolo_detector.model is not None
+    weapon_status = p.weapon_detector.get_status()
+    runtime_status = p.runtime.get_status()
+    models_ready = yolo_loaded and (
+        not weapon_status["enabled"] or weapon_status["loaded"])
+    accelerator_required = runtime_status["requested"] not in ("auto", "cpu")
+    accelerator_ready = (
+        runtime_status["device"] != "cpu"
+        and p.yolo_detector.get_status()["device"] != "cpu"
+        and (not weapon_status["enabled"] or weapon_status["device"] != "cpu")
+        and p.face_recognizer.get_status()["loaded"]
+        and p.face_recognizer.get_status()["device"] not in ("cpu", "unavailable")
+    )
+    required_loaded = models_ready and (
+        not accelerator_required or accelerator_ready)
+    content = {
+        "status": "ok" if required_loaded else "degraded",
+        "models_loaded": required_loaded,
+        "runtime": runtime_status,
+        "models": {
+            "objects": p.yolo_detector.get_status(),
+            "weapons": weapon_status,
+            "faces": p.face_recognizer.get_status(),
+        },
     }
+    return JSONResponse(status_code=200 if required_loaded else 503, content=content)
 
 
 @router.post("/detect", response_model=DetectionResponse)
@@ -128,6 +155,10 @@ async def detect(request: DetectionRequest):
             'class': w['class'],
             'confidence': w['confidence'],
             'bbox': w['bbox'],
+            'confirmed': w.get('confirmed', False),
+            'confirmation_hits': w.get('confirmation_hits', 0),
+            'confirmation_window': w.get('confirmation_window', 0),
+            'associated_tracking_id': w.get('associated_tracking_id'),
         })
 
     return DetectionResponse(

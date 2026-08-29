@@ -5,6 +5,7 @@ import config
 class PerimeterDetector:
     def __init__(self):
         self._inside_history: Dict[str, bool] = {}
+        self._distance_history: Dict[str, float] = {}
 
     def analyze(
         self,
@@ -16,26 +17,35 @@ class PerimeterDetector:
         tid = detection.get("tracking_id")
         bbox = detection.get("bbox", {})
         cx = bbox.get("x", 0) + bbox.get("width", 0) / 2
-        cy = bbox.get("y", 0) + bbox.get("height", 0) / 2
+        cy = bbox.get("y", 0) + bbox.get("height", 0)
 
-        perimeter_zones = [z for z in zones if z.get("type") in ("restricted", "perimeter") and z.get("enabled", True)]
+        perimeter_zones = [
+            z for z in zones
+            if str(z.get("type", "")).upper() in ("RESTRICTED", "PERIMETER")
+            and z.get("enabled", True)
+        ]
 
         was_inside = self._was_inside(camera_id, tid)
         is_inside = self._is_inside_any(cx, cy, perimeter_zones)
         nearest_distance = self._nearest_perimeter_distance(cx, cy, perimeter_zones)
+        key = f"{camera_id}:{tid}"
+        previous_distance = self._distance_history.get(key)
 
         breach = False
         suspicious_approach = False
 
-        if not was_inside and is_inside:
+        if was_inside is False and is_inside:
             breach = True
 
-        if not was_inside and not is_inside:
+        if was_inside is False and not is_inside and previous_distance is not None:
             speed = tracker.get_velocity(tid) if tid is not None else 0.0
-            if speed > config.SPEED_WALKING_THRESHOLD and nearest_distance < config.PERIMETER_APPROACH_DISTANCE:
+            moving_toward = nearest_distance < previous_distance - 1.0
+            if (moving_toward and speed > config.SPEED_WALKING_THRESHOLD
+                    and nearest_distance < config.PERIMETER_APPROACH_DISTANCE):
                 suspicious_approach = True
 
         self._update_history(camera_id, tid, is_inside)
+        self._distance_history[key] = nearest_distance
 
         return {
             "perimeter_breach": breach,
@@ -43,9 +53,9 @@ class PerimeterDetector:
             "distance_to_perimeter": round(nearest_distance, 1),
         }
 
-    def _was_inside(self, camera_id: str, tracking_id) -> bool:
+    def _was_inside(self, camera_id: str, tracking_id) -> Optional[bool]:
         key = f"{camera_id}:{tracking_id}"
-        return self._inside_history.get(key, False)
+        return self._inside_history.get(key)
 
     def _update_history(self, camera_id: str, tracking_id, is_inside: bool):
         key = f"{camera_id}:{tracking_id}"
@@ -94,3 +104,14 @@ class PerimeterDetector:
         proj_x = x1 + t * dx
         proj_y = y1 + t * dy
         return ((px - proj_x) ** 2 + (py - proj_y) ** 2) ** 0.5
+
+    def clear_camera(self, camera_id: str):
+        prefix = f"{camera_id}:"
+        self._inside_history = {
+            key: value for key, value in self._inside_history.items()
+            if not key.startswith(prefix)
+        }
+        self._distance_history = {
+            key: value for key, value in self._distance_history.items()
+            if not key.startswith(prefix)
+        }

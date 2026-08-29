@@ -1,9 +1,14 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 opencv-python-headless==4.10.0.84
-numpy==1.26.0
+numpy==1.26.4
+scipy==1.14.1
+tifffile==2024.8.30
+ml-dtypes==0.5.4
+coloredlogs==15.0.1
 ultralytics==8.3.55
-insightface==0.7.3
+lap==0.5.12
+insightface==1.0.1
 onnxruntime==1.18.0
 scikit-image==0.24.0
 pydantic==2.8.0

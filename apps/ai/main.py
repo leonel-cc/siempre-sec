@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router as api_router
 from processor import FrameProcessor
+from runtime import InferenceRuntime
 import config
 
 
@@ -41,11 +42,14 @@ async def startup():
     print("Starting Security AI Service...")
     print(f"YOLO model: {config.YOLO_MODEL}")
     print(f"Confidence threshold: {config.YOLO_CONFIDENCE_THRESHOLD}")
-    print(f"Inference FPS: {config.INFERENCE_FPS}")
+    print(f"AI device preference: {config.AI_DEVICE}")
     print(f"Face threshold: {config.FACE_RECOGNITION_THRESHOLD}")
     print(f"Weapon detection: {'enabled' if config.WEAPON_ENABLED else 'disabled'}")
 
     _processor = FrameProcessor()
+    print(f"Selected AI device: {_processor.runtime.device}")
+    print(f"Object inference FPS: {_processor.runtime.get_object_fps()}")
+    print(f"Weapon inference FPS: {_processor.runtime.get_weapon_fps()}")
     _processor.load_models()
     _processor.rule_engine.load_default_rules()
     _processor._stats['start_time'] = time.time()
@@ -78,7 +82,8 @@ def _on_alert(camera_id, alert, clip_path, snapshot_path=""):
         'camera_id': camera_id,
         'event_type': 'SECURITY_ALERT',
         'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
-        'confidence': alert.get('detection', {}).get('confidence', 0.0),
+        'confidence': alert.get('weapon', {}).get(
+            'confidence', alert.get('detection', {}).get('confidence', 0.0)),
         'video_path': clip_path,
         'snapshot_path': snapshot_path,
         'metadata': {
@@ -88,6 +93,7 @@ def _on_alert(camera_id, alert, clip_path, snapshot_path=""):
             'identity': alert.get('identity'),
             'zone_type': alert.get('zone_type'),
             'actions': alert.get('actions', []),
+            'weapon': alert.get('weapon'),
         },
     }
 
@@ -104,7 +110,15 @@ def _on_alert(camera_id, alert, clip_path, snapshot_path=""):
         print(f"[{camera_id}] Failed to post event to backend: {e}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and os.getenv("AI_SMOKE_TEST") == "1":
+    runtime = InferenceRuntime()
+    import onnxruntime
+    onnx_providers = onnxruntime.get_available_providers()
+    print(json.dumps({
+        "runtime": runtime.get_status(),
+        "onnx_providers": onnx_providers,
+    }))
+elif __name__ == "__main__":
     uvicorn.run(
         app,
         host=config.AI_SERVICE_HOST,

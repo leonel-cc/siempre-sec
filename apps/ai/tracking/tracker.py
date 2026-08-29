@@ -39,6 +39,8 @@ class ObjectTracker:
             best_distance = float("inf")
 
             for obj_id, obj in self.tracked_objects.items():
+                if obj_id in current_ids:
+                    continue
                 if obj.class_name != detection["class"]:
                     continue
                 last_pos = obj.positions[-1] if obj.positions else {"x": 0, "y": 0}
@@ -53,6 +55,7 @@ class ObjectTracker:
                 obj.bbox = bbox
                 obj.confidence = detection["confidence"]
                 obj.last_seen = now
+                obj.disappeared = 0
                 obj.positions.append(center)
                 if len(obj.positions) > 50:
                     obj.positions = obj.positions[-50:]

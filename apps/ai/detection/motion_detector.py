@@ -9,7 +9,7 @@ class MotionDetector:
         self.min_area = min_area
         self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
             history=500,
-            varThreshold=50,
+            varThreshold=int(50 * (1 - max(0.0, min(1.0, sensitivity))) + 10),
             detectShadows=True,
         )
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))

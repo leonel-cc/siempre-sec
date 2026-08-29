@@ -5,7 +5,7 @@ title Building Security AI Installer
 :: ============================================================
 :: Security AI - Full Installer Build Orchestrator
 ::
-:: Produces a single NSIS installer containing:
+:: Produces a single Inno Setup installer containing:
 ::   - Electron desktop app (UI + supervisor)
 ::   - NestJS backend (standalone, runs via Electron as Node)
 ::   - Python AI service frozen with PyInstaller
@@ -13,8 +13,8 @@ title Building Security AI Installer
 ::
 :: Output: apps\desktop\release\"Security AI Setup 0.1.0.exe"
 ::
-:: Prerequisites: Node.js 20+, Python 3.11+, internet access,
-::                MSVC build tools (for insightface compile).
+:: Prerequisites: Node.js 20+, Python 3.11+, Inno Setup 6,
+::                and internet access.
 :: ============================================================
 
 set "ROOT=%~dp0.."
@@ -49,6 +49,36 @@ if not defined PYTHON_OK (
 )
 echo Prerequisites OK ^(Node found, Python found^).
 
+if not defined INNO_SETUP_COMPILER (
+    if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "INNO_SETUP_COMPILER=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+)
+if not defined INNO_SETUP_COMPILER (
+    if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "INNO_SETUP_COMPILER=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+)
+if not defined INNO_SETUP_COMPILER (
+    if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "INNO_SETUP_COMPILER=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+)
+if not exist "%INNO_SETUP_COMPILER%" (
+    echo ERROR: Inno Setup 6 not found. Install JRSoftware.InnoSetup with winget
+    echo        or set INNO_SETUP_COMPILER to the full ISCC.exe path.
+    pause & exit /b 1
+)
+
+:: Select the AI runtime unless the caller explicitly chose a variant.
+if not defined AI_BUNDLE_GPU (
+    where nvidia-smi >nul 2>&1
+    if errorlevel 1 (
+        set "AI_BUNDLE_GPU=false"
+    ) else (
+        set "AI_BUNDLE_GPU=true"
+    )
+)
+if /I "%AI_BUNDLE_GPU%"=="true" (
+    echo AI bundle: NVIDIA CUDA ^(automatic CPU fallback included^).
+) else (
+    echo AI bundle: CPU.
+)
+
 :: ---- 2. Install workspace dependencies ----------------------------------
 echo.
 echo [1/3] Installing dependencies...
@@ -70,12 +100,18 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: ---- 4. Package with electron-builder (NSIS) ----------------------------
+:: ---- 4. Package Electron directory, then build the large-payload installer
 echo.
-echo [3/3] Packaging NSIS installer...
-call npx electron-builder --win --x64
+echo [3/3] Packaging Windows installer...
+call npx electron-builder --win --x64 --dir
 if errorlevel 1 (
     echo ERROR: electron-builder failed.
+    pause & exit /b 1
+)
+del /q "%RELEASE_DIR%\Security AI Setup 0.1.0.exe" >nul 2>&1
+"%INNO_SETUP_COMPILER%" "%ROOT%\installer\security-ai.iss"
+if errorlevel 1 (
+    echo ERROR: Inno Setup compiler failed.
     pause & exit /b 1
 )
 

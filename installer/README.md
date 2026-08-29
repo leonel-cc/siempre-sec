@@ -2,7 +2,7 @@
 
 ## Resultado
 
-Un solo `Security AI Setup 0.1.0.exe` (NSIS) que instala todo:
+Un solo `Security AI Setup 0.1.0.exe` (Inno Setup) que instala todo:
 
 ```
 C:\Program Files\Security AI\
@@ -25,8 +25,7 @@ instalación queda limpia.
 
 - Node.js 20+
 - Python 3.11 o 3.12 con el `py launcher` habilitado
-- Visual Studio Build Tools con workload "Desktop development with C++"
-  (requerido por `insightface`, compila una extensión Cython al instalarse)
+- Inno Setup 6 (`winget install --id JRSoftware.InnoSetup`)
 - Conexión a internet (descarga MediaMTX ~26 MB, FFmpeg ~100 MB,
   dependencias pip de IA ~2 GB en el primer build)
 
@@ -40,7 +39,20 @@ installer\build-installer.bat
 npm install
 cd apps\desktop
 node scripts\build-bundle.js          :: backend + IA + binarios + UI
-npx electron-builder --win --x64      :: empaqueta NSIS
+npx electron-builder --win --x64 --dir :: crea win-unpacked
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" ..\..\installer\security-ai.iss
+```
+
+`build-installer.bat` detects `nvidia-smi` and builds the CUDA-capable AI service automatically. The same service falls back to CPU when CUDA cannot initialize.
+
+To force a build variant:
+
+```bat
+set AI_BUNDLE_GPU=true
+installer\build-installer.bat
+
+set AI_BUNDLE_GPU=false
+installer\build-installer.bat
 ```
 
 Output final: `apps\desktop\release\Security AI Setup 0.1.0.exe`
@@ -55,3 +67,6 @@ Output final: `apps\desktop\release\Security AI Setup 0.1.0.exe`
   `build.win.icon` (mínimo 256x256 .ico) cuando exista branding.
 - Si el cliente ya tiene algo escuchando en 3000/5000/8554/1935/8888, esos
   servicios no arrancan (el supervisor detecta puertos ocupados).
+- Inno Setup se usa en lugar de NSIS porque el runtime CUDA supera el límite
+  de memoria de `makensis.exe` de 32 bits. El resultado sigue siendo un único
+  instalador offline.

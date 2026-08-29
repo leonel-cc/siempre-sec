@@ -23,6 +23,7 @@ class VideoSource(ABC):
         self._frame_callback: Optional[Callable] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
         self._current_frame: Optional[np.ndarray] = None
         self._frame_count = 0
         self._actual_fps = 0.0
@@ -36,17 +37,25 @@ class VideoSource(ABC):
         self._frame_callback = callback
 
     def start(self):
-        if self._running:
+        if self._running or (self._thread and self._thread.is_alive()):
             return
+        self._stop_event.clear()
         self._running = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
         self._running = False
+        self._stop_event.set()
         self.status = SourceStatus.STOPPED
+        try:
+            self._disconnect()
+        except Exception:
+            pass
         if self._thread:
             self._thread.join(timeout=5)
+            if not self._thread.is_alive():
+                self._thread = None
 
     def _run_loop(self):
         while self._running:
@@ -57,6 +66,10 @@ class VideoSource(ABC):
                 self._error_count = 0
                 self._stream_loop()
             except Exception as e:
+                try:
+                    self._disconnect()
+                except Exception:
+                    pass
                 self._error_count += 1
                 self.status = SourceStatus.ERROR
                 if self._error_count >= self._max_reconnect_attempts:
@@ -65,7 +78,17 @@ class VideoSource(ABC):
                 self.status = SourceStatus.RECONNECTING
                 delay = min(self._reconnect_delay * (2 ** min(self._error_count - 1, 5)), 30)
                 print(f"[{self.source_id}] Error: {e}, reconnecting in {delay:.1f}s (attempt {self._error_count})")
-                time.sleep(delay)
+                if self._stop_event.wait(delay):
+                    break
+        self._running = False
+        try:
+            self._disconnect()
+        except Exception:
+            pass
+        if self._stop_event.is_set():
+            self.status = SourceStatus.STOPPED
+        if self._thread is threading.current_thread():
+            self._thread = None
 
     def _stream_loop(self):
         frame_interval = 1.0 / self.target_fps
@@ -81,7 +104,7 @@ class VideoSource(ABC):
             elapsed = time.time() - start
             sleep_time = frame_interval - elapsed
             if sleep_time > 0:
-                time.sleep(sleep_time)
+                self._stop_event.wait(sleep_time)
 
     def _update_fps(self):
         now = time.time()

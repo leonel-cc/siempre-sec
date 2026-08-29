@@ -4,7 +4,7 @@
  * before running electron-builder.
  */
 
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -22,6 +22,15 @@ function run(cmd, cwd) {
 
 function rmrf(dir) {
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function hasNvidiaGpu() {
+  try {
+    execFileSync('nvidia-smi', ['-L'], { stdio: 'pipe' });
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 function resolvePythonLauncher() {
@@ -114,16 +123,39 @@ try {
   console.log('\n[4/6] Freezing AI service with PyInstaller...');
   const aiDist = path.join(AI_DIR, 'dist', 'security-ai-service');
   const aiTarget = path.join(DESKTOP_DIR, 'ai');
+  const gpuBundle = process.env.AI_BUNDLE_GPU === undefined
+    ? hasNvidiaGpu()
+    : process.env.AI_BUNDLE_GPU === 'true';
 
-  if (fs.existsSync(path.join(aiDist, 'security-ai-service.exe'))) {
-    console.log('  Frozen AI service found, copying...');
-  } else {
-    const py = resolvePythonLauncher();
-    console.log(`  Using Python launcher: ${py.cmd} ${py.args.join(' ')}`);
-    console.log('  Running PyInstaller...');
-    run(`${py.cmd} ${py.args.join(' ')} -m pip install --quiet -r requirements.txt -r requirements-build.txt`, AI_DIR);
-    run(`${py.cmd} ${py.args.join(' ')} -m PyInstaller --name security-ai-service --onedir --console --add-data "api;api" --add-data "detection;detection" --add-data "tracking;tracking" --add-data "recognition;recognition" --add-data "rules;rules" --add-data "buffer;buffer" --add-data "sources;sources" --add-data "discovery;discovery" --add-data "media;media" --collect-all ultralytics --hidden-import uvicorn --hidden-import uvicorn.logging --hidden-import uvicorn.loops --hidden-import uvicorn.loops.auto --hidden-import uvicorn.protocols --hidden-import uvicorn.protocols.http --hidden-import uvicorn.protocols.http.auto --hidden-import uvicorn.protocols.websockets --hidden-import uvicorn.protocols.websockets.auto --hidden-import uvicorn.lifespan --hidden-import uvicorn.lifespan.on --hidden-import uvicorn.lifespan.off --hidden-import config --hidden-import processor --hidden-import api.routes --hidden-import detection.motion_detector --hidden-import detection.yolo_detector --hidden-import tracking.tracker --hidden-import recognition.face_recognizer --hidden-import rules.rule_engine --hidden-import buffer.video_buffer --hidden-import sources.file_source --hidden-import sources.rtsp_source --hidden-import discovery.onvif_discovery --hidden-import media.ffmpeg_helper main.py --noconfirm`, AI_DIR);
+  if (gpuBundle) {
+    console.log('  GPU-capable AI bundle requested');
   }
+  rmrf(aiDist);
+  const hostPy = resolvePythonLauncher();
+  console.log(`  Using Python launcher: ${hostPy.cmd} ${hostPy.args.join(' ')}`);
+  const variant = gpuBundle ? 'gpu' : 'cpu';
+  const aiVenv = path.join(os.tmpdir(), `security-ai-ai-build-${variant}`);
+  rmrf(aiVenv);
+  run(`${hostPy.cmd} ${hostPy.args.join(' ')} -m venv "${aiVenv}"`, AI_DIR);
+  const buildPython = process.platform === 'win32'
+    ? path.join(aiVenv, 'Scripts', 'python.exe')
+    : path.join(aiVenv, 'bin', 'python');
+  const py = `"${buildPython}"`;
+  console.log('  Running PyInstaller...');
+  run(`${py} -m pip install --quiet -r requirements.txt -r requirements-build.txt`, AI_DIR);
+  if (gpuBundle) {
+    run(`${py} setup_gpu.py --force`, AI_DIR);
+  }
+  const gpuCollect = gpuBundle ? '--collect-all onnxruntime' : '';
+  run(`${py} -m PyInstaller --name security-ai-service --onedir --console --add-data "api;api" --add-data "detection;detection" --add-data "tracking;tracking" --add-data "recognition;recognition" --add-data "rules;rules" --add-data "buffer;buffer" --add-data "sources;sources" --add-data "discovery;discovery" --add-data "media;media" --collect-all ultralytics ${gpuCollect} --hidden-import uvicorn --hidden-import uvicorn.logging --hidden-import uvicorn.loops --hidden-import uvicorn.loops.auto --hidden-import uvicorn.protocols --hidden-import uvicorn.protocols.http --hidden-import uvicorn.protocols.http.auto --hidden-import uvicorn.protocols.websockets --hidden-import uvicorn.protocols.websockets.auto --hidden-import uvicorn.lifespan --hidden-import uvicorn.lifespan.on --hidden-import uvicorn.lifespan.off --hidden-import config --hidden-import runtime --hidden-import processor --hidden-import api.routes --hidden-import detection.motion_detector --hidden-import detection.yolo_detector --hidden-import tracking.tracker --hidden-import recognition.face_recognizer --hidden-import rules.rule_engine --hidden-import buffer.video_buffer --hidden-import sources.file_source --hidden-import sources.rtsp_source --hidden-import discovery.onvif_discovery --hidden-import media.ffmpeg_helper main.py --noconfirm`, AI_DIR);
+  const frozenExe = path.join(aiDist, 'security-ai-service.exe');
+  const smokeOutput = execFileSync(frozenExe, [], {
+    cwd: aiDist,
+    encoding: 'utf8',
+    env: { ...process.env, AI_SMOKE_TEST: '1', AI_DEVICE: 'auto' },
+  });
+  console.log(`  Frozen AI smoke test: ${smokeOutput.trim()}`);
+  rmrf(aiVenv);
 
   // Copy frozen AI to desktop + bundle YOLO weights
   fs.cpSync(aiDist, aiTarget, { recursive: true });
