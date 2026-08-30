@@ -7,7 +7,7 @@ from .base import VideoSource
 
 class FileVideoSource(VideoSource):
     def __init__(self, source_id: str, file_path: str,
-                 loop: bool = True, target_fps: int = 25):
+                 loop: bool = True, target_fps: int = 30):
         super().__init__(source_id, target_fps)
         self.file_path = file_path
         self.loop = loop

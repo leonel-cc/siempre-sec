@@ -1,4 +1,6 @@
 import cv2
+import os
+import subprocess
 import time
 import threading
 from collections import deque
@@ -43,8 +45,8 @@ class VideoBuffer:
         pre_seconds: int = None,
         post_seconds: int = None,
     ) -> bool:
-        pre_seconds = pre_seconds or config.PRE_EVENT_SECONDS
-        post_seconds = post_seconds or config.POST_EVENT_SECONDS
+        pre_seconds = config.PRE_EVENT_SECONDS if pre_seconds is None else pre_seconds
+        post_seconds = config.POST_EVENT_SECONDS if post_seconds is None else post_seconds
 
         with self.lock:
             if camera_id not in self.buffers:
@@ -64,14 +66,35 @@ class VideoBuffer:
             return False
 
         height, width = all_frames[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(output_path, fourcc, self.fps, (width, height))
-
-        for frame in all_frames:
-            writer.write(frame)
-
-        writer.release()
-        return True
+        temp_path = f"{output_path}.tmp.mp4"
+        command = [
+            os.environ.get('FFMPEG_PATH', 'ffmpeg'),
+            '-y', '-loglevel', 'error',
+            '-f', 'rawvideo', '-pix_fmt', 'bgr24',
+            '-s', f'{width}x{height}', '-r', str(self.fps), '-i', '-',
+            '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+            '-pix_fmt', 'yuv420p', '-movflags', '+faststart', temp_path,
+        ]
+        try:
+            process = subprocess.Popen(
+                command, stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            for frame in all_frames:
+                if frame.shape[:2] != (height, width):
+                    frame = cv2.resize(frame, (width, height))
+                process.stdin.write(frame.tobytes())
+            process.stdin.close()
+            error = process.stderr.read().decode('utf-8', errors='replace')
+            return_code = process.wait()
+            if return_code != 0:
+                raise RuntimeError(error.strip() or f'ffmpeg exited with {return_code}')
+            os.replace(temp_path, output_path)
+            return True
+        except Exception as exc:
+            print(f"Failed to encode evidence clip: {exc}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return False
 
     def clear_buffer(self, camera_id: str):
         with self.lock:

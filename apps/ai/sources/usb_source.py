@@ -7,7 +7,7 @@ from .base import VideoSource
 
 class UsbVideoSource(VideoSource):
     def __init__(self, source_id: str, device_index: int = 0,
-                 target_fps: int = 25, width: int = 1280, height: int = 720):
+                 target_fps: int = 30, width: int = 1280, height: int = 720):
         super().__init__(source_id, target_fps)
         self.device_index = device_index
         self.width = width

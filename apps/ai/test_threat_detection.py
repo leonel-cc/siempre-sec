@@ -86,10 +86,12 @@ class ThreatDetectionTests(unittest.TestCase):
             "bbox": {"x": 245, "y": 210, "width": 24, "height": 18},
         }
 
-        alert = engine.evaluate(
-            [self.person], [], None, None, "camera-a", [weapon])
+        detection = dict(self.person)
+        detection["weapon"] = weapon
+        engine.evaluate("camera-a", [detection])
+        alerts = engine.evaluate("camera-a", [detection])
+        alert = alerts[0]
 
-        self.assertIsNotNone(alert)
         self.assertEqual(alert["rule_id"], "weapon_detected")
         self.assertEqual(alert["weapon"]["class"], "Gun")
 

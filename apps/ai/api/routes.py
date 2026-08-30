@@ -6,6 +6,7 @@ import asyncio
 import base64
 import numpy as np
 import cv2
+import config
 
 router = APIRouter()
 
@@ -20,6 +21,8 @@ class DetectionResponse(BaseModel):
     detections: list
     face_results: list
     weapon_detections: list = []
+    face_cover_detections: list = []
+    alerts: list = []
     alert: Optional[dict] = None
     has_motion: bool = False
 
@@ -38,7 +41,7 @@ class AddFileSourceRequest(BaseModel):
     source_id: str
     file_path: str
     loop: bool = True
-    target_fps: int = 25
+    target_fps: int = 30
 
 
 class AddRTSPSourceRequest(BaseModel):
@@ -46,13 +49,13 @@ class AddRTSPSourceRequest(BaseModel):
     rtsp_url: str
     username: str = ""
     password: str = ""
-    target_fps: int = 25
+    target_fps: int = 30
 
 
 class AddUsbSourceRequest(BaseModel):
     source_id: str
     device_index: int = 0
-    target_fps: int = 25
+    target_fps: int = 30
 
 
 class UpdateZonesRequest(BaseModel):
@@ -84,8 +87,15 @@ async def health():
     yolo_loaded = p.yolo_detector.model is not None
     weapon_status = p.weapon_detector.get_status()
     runtime_status = p.runtime.get_status()
-    models_ready = yolo_loaded and (
-        not weapon_status["enabled"] or weapon_status["loaded"])
+    weapon_loaded = p.weapon_detector.model is not None
+    weapon_verifier = getattr(p.weapon_detector, "verifier_model", None)
+    face_cover_loaded = p.face_cover_detector.model is not None
+    visible_face_loaded = p.face_cover_detector.visible_face_detector is not None
+    models_ready = (
+        yolo_loaded
+        and (not weapon_status["enabled"] or weapon_loaded)
+        and (not config.FACE_COVER_ENABLED or face_cover_loaded)
+    )
     accelerator_required = runtime_status["requested"] not in ("auto", "cpu")
     accelerator_ready = (
         runtime_status["device"] != "cpu"
@@ -94,17 +104,26 @@ async def health():
         and p.face_recognizer.get_status()["loaded"]
         and p.face_recognizer.get_status()["device"] not in ("cpu", "unavailable")
     )
-    required_loaded = models_ready and (
-        not accelerator_required or accelerator_ready)
+    acceleration_degraded = accelerator_required and not accelerator_ready
+    required_loaded = models_ready
     content = {
-        "status": "ok" if required_loaded else "degraded",
+        "status": "degraded" if acceleration_degraded or not models_ready else "ok",
         "models_loaded": required_loaded,
         "runtime": runtime_status,
         "models": {
             "objects": p.yolo_detector.get_status(),
             "weapons": weapon_status,
             "faces": p.face_recognizer.get_status(),
+            "face_cover": {
+                "enabled": config.FACE_COVER_ENABLED,
+                "loaded": face_cover_loaded,
+                "visible_face_verifier_loaded": visible_face_loaded,
+            },
         },
+        "weapon_model_loaded": weapon_loaded,
+        "weapon_verifier_loaded": weapon_verifier is not None,
+        "face_cover_model_loaded": face_cover_loaded,
+        "visible_face_verifier_loaded": visible_face_loaded,
     }
     return JSONResponse(status_code=200 if required_loaded else 503, content=content)
 
@@ -138,6 +157,9 @@ async def detect(request: DetectionRequest):
             'behavior': d.get('behavior'),
             'perimeter': d.get('perimeter'),
             'zone_type': d.get('zone_type'),
+            'weapon': d.get('weapon'),
+            'face_cover': d.get('face_cover'),
+            'confirmed_threats': d.get('confirmed_threats', {}),
         })
 
     face_serializable = []
@@ -161,10 +183,20 @@ async def detect(request: DetectionRequest):
             'associated_tracking_id': w.get('associated_tracking_id'),
         })
 
+    face_cover_serializable = []
+    for cover in result.get('face_cover_detections', []):
+        face_cover_serializable.append({
+            'class': cover['class'],
+            'confidence': cover['confidence'],
+            'bbox': cover['bbox'],
+        })
+
     return DetectionResponse(
         detections=detections_serializable,
         face_results=face_serializable,
         weapon_detections=weapon_serializable,
+        face_cover_detections=face_cover_serializable,
+        alerts=result.get('alerts', []),
         alert=result.get('alert'),
         has_motion=result.get('has_motion', False),
     )
@@ -248,9 +280,12 @@ async def stop_source(source_id: str):
 
 
 @router.get("/sources/{source_id}/snapshot")
-async def get_snapshot(source_id: str):
+async def get_snapshot(source_id: str, view: str = 'raw', show_people: bool = False):
     processor = _get_processor()
-    frame = processor.get_snapshot(source_id)
+    if view not in ('raw', 'annotated'):
+        raise HTTPException(status_code=400, detail="view must be raw or annotated")
+    frame = processor.get_snapshot(
+        source_id, view=view, show_people=show_people)
     if frame is None:
         raise HTTPException(status_code=404, detail="No frame available")
     _, buffer = cv2.imencode('.jpg', frame)
@@ -258,13 +293,17 @@ async def get_snapshot(source_id: str):
 
 
 @router.get("/sources/{source_id}/stream")
-async def stream_source(source_id: str, fps: int = 25):
+async def stream_source(source_id: str, fps: int = 30, view: str = 'raw',
+                        show_people: bool = False):
     processor = _get_processor()
+    if view not in ('raw', 'annotated'):
+        raise HTTPException(status_code=400, detail="view must be raw or annotated")
     interval = 1.0 / max(1, min(fps, 30))
 
     async def generate():
         while True:
-            frame = processor.get_snapshot(source_id)
+            frame = processor.get_snapshot(
+                source_id, view=view, show_people=show_people)
             if frame is not None:
                 ok, buffer = cv2.imencode(
                     '.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])

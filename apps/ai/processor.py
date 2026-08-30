@@ -1,61 +1,57 @@
-import cv2
 import os
-import time
 import threading
+import time
 import uuid
-import numpy as np
 from collections import deque
-from typing import Dict, List, Optional, Callable
-from detection.motion_detector import MotionDetector
-from detection.yolo_detector import YoloDetector
+from typing import Callable, Dict, List, Optional
+
+import cv2
+import numpy as np
+
+import config
+from buffer.video_buffer import VideoBuffer
+from detection.face_cover_detector import FaceCoverDetector
 from detection.weapon_detector import WeaponDetector
-from analysis.behavior_analyzer import BehaviorAnalyzer
-from analysis.perimeter_detector import PerimeterDetector
-from tracking.tracker import ObjectTracker
+from detection.yolo_detector import YoloDetector
 from recognition.face_recognizer import FaceRecognizer
 from rules.rule_engine import RuleEngine
-from buffer.video_buffer import VideoBuffer
-from sources.base import VideoSource, SourceStatus
+from runtime import InferenceRuntime, LatencyTracker
+from sources.base import VideoSource
 from sources.file_source import FileVideoSource
 from sources.rtsp_source import RTSPVideoSource
 from sources.usb_source import UsbVideoSource
-from runtime import InferenceRuntime, LatencyTracker
-import config
+from tracking.tracker import ObjectTracker
 
 
 class FrameProcessor:
     def __init__(self):
         self.runtime = InferenceRuntime()
-        self.motion_detector = MotionDetector(sensitivity=config.MOTION_SENSITIVITY)
         self.yolo_detector = YoloDetector(runtime=self.runtime)
         self.weapon_detector = WeaponDetector(runtime=self.runtime)
-        self.tracker = ObjectTracker()
+        self.face_cover_detector = FaceCoverDetector(runtime=self.runtime)
         self.face_recognizer = FaceRecognizer(runtime=self.runtime)
-        self.rule_engine = RuleEngine(tracker=self.tracker)
+        self.rule_engine = RuleEngine()
         self.video_buffer = VideoBuffer()
-        self.behavior_analyzer = BehaviorAnalyzer()
-        self.perimeter_detector = PerimeterDetector()
 
         self.sources: Dict[str, VideoSource] = {}
         self._zones: Dict[str, List[Dict]] = {}
-        self._motion_detectors: Dict[str, MotionDetector] = {}
         self._trackers: Dict[str, ObjectTracker] = {}
-        self._camera_locks: Dict[str, threading.Lock] = {}
-        self._last_object_inference: Dict[str, float] = {}
+        self._last_inference: Dict[str, float] = {}
         self._last_weapon_inference: Dict[str, float] = {}
-        self._latest_detections: Dict[str, List[Dict]] = {}
-        self._latest_face_results: Dict[str, List[Dict]] = {}
         self._latest_weapon_detections: Dict[str, List[Dict]] = {}
+        self._latest_results: Dict[str, Dict] = {}
         self._latest_annotated_frames: Dict[str, np.ndarray] = {}
         self._weapon_history: Dict[str, deque] = {}
-        self._source_generations: Dict[str, int] = {}
-        self._pipeline_latency = LatencyTracker()
-        self._stats_lock = threading.Lock()
-        self._processing = False
+        self._pending_frames: Dict[str, np.ndarray] = {}
+        self._processing_events: Dict[str, threading.Event] = {}
+        self._processing_threads: Dict[str, threading.Thread] = {}
         self._detection_callback: Optional[Callable] = None
         self._alert_callback: Optional[Callable] = None
         self._frame_callback: Optional[Callable] = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._frame_lock = threading.Lock()
+        self._stats_lock = threading.Lock()
+        self._pipeline_latency = LatencyTracker()
 
         self._stats = {
             'total_frames_processed': 0,
@@ -72,15 +68,13 @@ class FrameProcessor:
         face_loaded = self.face_recognizer.load_model()
         if face_loaded:
             self.face_recognizer.warmup()
-        weapon_loaded = not config.WEAPON_ENABLED
         if config.WEAPON_ENABLED:
             weapon_loaded = self.weapon_detector.load_model()
             if weapon_loaded:
                 self.weapon_detector.warmup()
-        if weapon_loaded:
-            print("Required AI models loaded")
-        else:
-            print("AI service started in degraded mode: weapon model unavailable")
+        if config.FACE_COVER_ENABLED:
+            self.face_cover_detector.load_model()
+        print("AI models loaded; unavailable optional models remain degraded")
 
     def set_callbacks(
         self,
@@ -93,118 +87,95 @@ class FrameProcessor:
         self._frame_callback = frame_callback
 
     def update_zones(self, camera_id: str, zones: List[Dict]):
-        normalized = []
-        for zone in zones:
-            normalized_zone = dict(zone)
-            normalized_zone['type'] = str(zone.get('type', 'MONITORED')).upper()
-            normalized.append(normalized_zone)
-        self._zones[camera_id] = normalized
+        self._zones[camera_id] = zones
 
-    def _point_in_polygon(self, x: float, y: float, polygon: List[Dict]) -> bool:
-        n = len(polygon)
-        inside = False
-        j = n - 1
-        for i in range(n):
-            xi, yi = polygon[i].get('x', 0), polygon[i].get('y', 0)
-            xj, yj = polygon[j].get('x', 0), polygon[j].get('y', 0)
-            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
-                inside = not inside
-            j = i
-        return inside
-
-    def _detect_zone(self, camera_id: str, bbox: Dict) -> Optional[str]:
-        zones = self._zones.get(camera_id, [])
-        cx = bbox['x'] + bbox['width'] / 2
-        cy = bbox['y'] + bbox['height']
-        for zone in zones:
-            if not zone.get('enabled', True):
-                continue
-            polygon = zone.get('polygon', [])
-            if len(polygon) >= 3 and self._point_in_polygon(cx, cy, polygon):
-                return zone.get('type', 'MONITORED')
-        return None
-
-    def _get_camera_state(self, camera_id: str):
+    def _create_source(self, source_id: str, source: VideoSource) -> dict:
         with self._lock:
-            if camera_id not in self._motion_detectors:
-                self._motion_detectors[camera_id] = MotionDetector(
-                    sensitivity=config.MOTION_SENSITIVITY)
-            if camera_id not in self._trackers:
-                self._trackers[camera_id] = ObjectTracker()
-            if camera_id not in self._camera_locks:
-                self._camera_locks[camera_id] = threading.Lock()
-            motion_detector = self._motion_detectors[camera_id]
-            tracker = self._trackers[camera_id]
-            camera_lock = self._camera_locks[camera_id]
-        return motion_detector, tracker, camera_lock
+            previous = self.sources.pop(source_id, None)
+        if previous:
+            previous.stop()
+            self._stop_processing_worker(source_id)
+            self._clear_camera_state(source_id)
+        source.set_frame_callback(self._on_frame)
+        with self._lock:
+            self.sources[source_id] = source
+            self._trackers[source_id] = ObjectTracker()
+        self.video_buffer.create_buffer(source_id)
+        self._start_processing_worker(source_id)
+        return source.get_info()
+
+    def _start_processing_worker(self, source_id: str):
+        event = threading.Event()
+        self._processing_events[source_id] = event
+        thread = threading.Thread(
+            target=self._processing_loop, args=(source_id,), daemon=True)
+        self._processing_threads[source_id] = thread
+        thread.start()
+
+    def _processing_loop(self, source_id: str):
+        while source_id in self._processing_events:
+            event = self._processing_events[source_id]
+            event.wait(timeout=1.0)
+            if source_id not in self._processing_events:
+                break
+            with self._frame_lock:
+                frame = self._pending_frames.pop(source_id, None)
+                event.clear()
+            if frame is not None:
+                try:
+                    self.process_frame(source_id, frame)
+                except Exception as exc:
+                    print(f"[{source_id}] Processing error: {exc}")
+
+    def _stop_processing_worker(self, source_id: str):
+        event = self._processing_events.pop(source_id, None)
+        if event:
+            event.set()
+        thread = self._processing_threads.pop(source_id, None)
+        if thread and thread is not threading.current_thread():
+            thread.join()
+        with self._frame_lock:
+            self._pending_frames.pop(source_id, None)
 
     def add_file_source(self, source_id: str, file_path: str,
-                        loop: bool = True, target_fps: int = 25) -> dict:
-        source = FileVideoSource(source_id, file_path, loop, target_fps)
-        return self._replace_source(source_id, source)
+                        loop: bool = True, target_fps: int = 30) -> dict:
+        return self._create_source(
+            source_id, FileVideoSource(source_id, file_path, loop, target_fps))
 
     def add_rtsp_source(self, source_id: str, rtsp_url: str,
                         username: str = '', password: str = '',
-                        target_fps: int = 25) -> dict:
-        source = RTSPVideoSource(source_id, rtsp_url, username, password, target_fps)
-        return self._replace_source(source_id, source)
+                        target_fps: int = 30) -> dict:
+        return self._create_source(
+            source_id,
+            RTSPVideoSource(source_id, rtsp_url, username, password, target_fps),
+        )
 
     def add_usb_source(self, source_id: str, device_index: int = 0,
-                       target_fps: int = 25) -> dict:
-        source = UsbVideoSource(source_id, device_index, target_fps)
-        return self._replace_source(source_id, source)
-
-    def _replace_source(self, source_id: str, source: VideoSource) -> dict:
-        with self._lock:
-            previous = self.sources.pop(source_id, None)
-            generation = self._source_generations.get(source_id, 0) + 1
-            self._source_generations[source_id] = generation
-        if previous:
-            previous.stop()
-        self._clear_camera_state(source_id)
-        source.set_frame_callback(
-            lambda sid, frame, gen=generation: self._on_frame(sid, frame, gen))
-        with self._lock:
-            self.sources[source_id] = source
-        self.video_buffer.create_buffer(source_id)
-        return source.get_info()
+                       target_fps: int = 30) -> dict:
+        return self._create_source(
+            source_id, UsbVideoSource(source_id, device_index, target_fps))
 
     def remove_source(self, source_id: str):
         with self._lock:
             source = self.sources.pop(source_id, None)
-            self._source_generations[source_id] = self._source_generations.get(source_id, 0) + 1
         if source:
             source.stop()
+        self._stop_processing_worker(source_id)
         self._clear_camera_state(source_id)
 
     def _clear_camera_state(self, source_id: str):
         with self._lock:
-            camera_lock = self._camera_locks.get(source_id)
-        if camera_lock:
-            camera_lock.acquire()
-        try:
-            self._clear_camera_state_locked(source_id)
-        finally:
-            if camera_lock:
-                camera_lock.release()
-
-    def _clear_camera_state_locked(self, source_id: str):
-        with self._lock:
-            self._motion_detectors.pop(source_id, None)
             self._trackers.pop(source_id, None)
-            self._last_object_inference.pop(source_id, None)
+            self._last_inference.pop(source_id, None)
             self._last_weapon_inference.pop(source_id, None)
-            self._latest_detections.pop(source_id, None)
-            self._latest_face_results.pop(source_id, None)
             self._latest_weapon_detections.pop(source_id, None)
+            self._latest_results.pop(source_id, None)
             self._latest_annotated_frames.pop(source_id, None)
             prefix = f"{source_id}:"
             self._weapon_history = {
                 key: value for key, value in self._weapon_history.items()
                 if not key.startswith(prefix)
             }
-        self.behavior_analyzer.clear_camera(source_id)
-        self.perimeter_detector.clear_camera(source_id)
         self.rule_engine.clear_camera(source_id)
         self.video_buffer.clear_buffer(source_id)
 
@@ -219,7 +190,6 @@ class FrameProcessor:
             source = self.sources.get(source_id)
         if source:
             source.stop()
-            self._clear_camera_state(source_id)
 
     def start_all(self):
         with self._lock:
@@ -232,267 +202,397 @@ class FrameProcessor:
             sources = list(self.sources.items())
         for source_id, source in sources:
             source.stop()
+            self._stop_processing_worker(source_id)
             self._clear_camera_state(source_id)
 
-    def _generation_is_current(self, source_id: str, generation: Optional[int]) -> bool:
-        if generation is None:
-            return True
-        with self._lock:
-            return self._source_generations.get(source_id) == generation
+    def _on_frame(self, source_id: str, frame: np.ndarray):
+        with self._frame_lock:
+            self._pending_frames[source_id] = frame
+            event = self._processing_events.get(source_id)
+            if event:
+                event.set()
 
-    def _on_frame(self, source_id: str, frame: np.ndarray, generation: Optional[int] = None):
-        if not self._generation_is_current(source_id, generation):
-            return
-        try:
-            result = self.process_frame(source_id, frame, generation)
-            if self._frame_callback and self._generation_is_current(source_id, generation):
-                self._frame_callback(source_id, frame, result)
-        except Exception as e:
-            print(f"[{source_id}] Processing error: {e}")
+    def process_frame(self, camera_id: str, frame: np.ndarray) -> dict:
+        started = time.perf_counter()
+        self.video_buffer.add_frame(camera_id, frame)
+        self._increment_stat('total_frames_processed')
+        now = time.monotonic()
+        interval = 1.0 / max(self.runtime.get_object_fps(), 0.1)
+        should_infer = now - self._last_inference.get(camera_id, 0.0) >= interval
 
-    def process_frame(self, camera_id: str, frame: np.ndarray,
-                      generation: Optional[int] = None) -> dict:
-        motion_detector, tracker, camera_lock = self._get_camera_state(camera_id)
-        with camera_lock:
-            if not self._generation_is_current(camera_id, generation):
-                return self._empty_result(frame)
-            return self._process_frame(
-                camera_id, frame, motion_detector, tracker, generation)
+        if should_infer:
+            self._last_inference[camera_id] = now
+            result = self._run_inference(camera_id, frame, now)
+            with self._frame_lock:
+                self._latest_results[camera_id] = result
+        else:
+            with self._frame_lock:
+                result = self._latest_results.get(camera_id, self._empty_result())
 
-    def _empty_result(self, frame: np.ndarray) -> dict:
+        annotated = self._annotate_frame(frame, result['detections'])
+        with self._frame_lock:
+            self._latest_annotated_frames[camera_id] = annotated
+
+        if should_infer:
+            for alert in result['alerts']:
+                self._emit_alert(camera_id, alert, annotated)
+            if self._detection_callback:
+                self._detection_callback(
+                    camera_id, result['detections'], result['face_results'])
+            if self._frame_callback:
+                self._frame_callback(camera_id, frame, result)
+
+        self._pipeline_latency.record((time.perf_counter() - started) * 1000)
+        response = dict(result)
+        response['annotated_frame'] = annotated
+        response['alert'] = result['alerts'][0] if result['alerts'] else None
+        return response
+
+    def _run_inference(self, camera_id: str, frame: np.ndarray,
+                       now: Optional[float] = None) -> Dict:
+        if now is None:
+            now = time.monotonic()
+        detections = self.yolo_detector.detect(frame)
+        self._increment_stat('object_inferences')
+        tracker = self._trackers.setdefault(camera_id, ObjectTracker())
+        tracked = tracker.update(detections)
+        people = [d for d in tracked if d['class'] == 'person']
+        weapon_vetoes = [
+            d for d in tracked if d['class'] in config.WEAPON_VETO_CLASSES]
+
+        weapon_interval = 1.0 / max(self.runtime.get_weapon_fps(), 0.1)
+        should_detect_weapons = (
+            config.WEAPON_ENABLED
+            and now - self._last_weapon_inference.get(camera_id, 0.0)
+            >= weapon_interval
+        )
+        if should_detect_weapons:
+            raw_weapons = [
+                weapon for weapon in self.weapon_detector.detect(frame)
+                if not any(
+                    self._is_near_veto(weapon['bbox'], veto['bbox'])
+                    for veto in weapon_vetoes
+                )
+            ]
+            observation_id = f"{camera_id}:{now}"
+            for weapon in raw_weapons:
+                weapon['_observation_id'] = observation_id
+            self._associate_weapon_ids(people, raw_weapons)
+            weapon_detections = self._confirm_weapon_detections(
+                camera_id, raw_weapons)
+            self._latest_weapon_detections[camera_id] = weapon_detections
+            self._last_weapon_inference[camera_id] = now
+            self._increment_stat('weapon_inferences')
+        else:
+            weapon_detections = self._latest_weapon_detections.get(camera_id, [])
+
+        # Candidates remain visible immediately; RuleEngine applies the
+        # temporal confirmation before an incident becomes alertable.
+        self._associate_weapons(people, weapon_detections)
+
+        face_cover_detections = []
+        if people and config.FACE_COVER_ENABLED:
+            face_cover_detections = self.face_cover_detector.detect(frame)
+            self._associate_face_covers(people, face_cover_detections)
+
+        face_results = self.face_recognizer.recognize(frame)
+        standalone_weapons = self._standalone_weapons(people, weapon_detections)
+        evaluated_detections = people + standalone_weapons
+        alerts = self.rule_engine.evaluate(camera_id, evaluated_detections)
+        visible_detections = tracked + standalone_weapons
+        self._increment_stat('total_detections', len(tracked))
+        self._increment_stat('total_alerts', len(alerts))
+        return {
+            'detections': visible_detections,
+            'face_results': face_results,
+            'weapon_detections': weapon_detections,
+            'face_cover_detections': face_cover_detections,
+            'alerts': alerts,
+            'has_motion': False,
+        }
+
+    @staticmethod
+    def _empty_result() -> Dict:
         return {
             'detections': [],
             'face_results': [],
             'weapon_detections': [],
-            'alert': None,
+            'face_cover_detections': [],
+            'alerts': [],
             'has_motion': False,
-            'annotated_frame': frame.copy(),
         }
 
-    def _process_frame(self, camera_id: str, frame: np.ndarray,
-                       motion_detector: MotionDetector, tracker: ObjectTracker,
-                       generation: Optional[int] = None) -> dict:
-        pipeline_started = time.perf_counter()
-        self.video_buffer.add_frame(camera_id, frame)
-        self._increment_stat('total_frames_processed')
-        now = time.monotonic()
-
-        has_motion, _ = motion_detector.detect(frame)
-
-        object_interval = 1.0 / max(0.1, self.runtime.get_object_fps())
-        should_detect_objects = now - self._last_object_inference.get(camera_id, 0.0) >= object_interval
-        if should_detect_objects:
-            detections = self.yolo_detector.detect(frame)
-            self._increment_stat('object_inferences')
-            tracked = tracker.update(detections)
-            face_results = self.face_recognizer.recognize(frame)
-            self._latest_detections[camera_id] = tracked
-            self._latest_face_results[camera_id] = face_results
-            self._last_object_inference[camera_id] = time.monotonic()
-        else:
-            tracked = self._latest_detections.get(camera_id, [])
-            face_results = self._latest_face_results.get(camera_id, [])
-
-        weapon_detections = self._latest_weapon_detections.get(camera_id, [])
-        if self.weapon_detector.model is not None and config.WEAPON_ENABLED:
-            weapon_interval = 1.0 / max(0.1, self.runtime.get_weapon_fps())
-            if now - self._last_weapon_inference.get(camera_id, 0.0) >= weapon_interval:
-                raw_weapon_detections = self.weapon_detector.detect(frame)
-                self._increment_stat('weapon_inferences')
-                weapon_detections = self._confirm_weapon_detections(
-                    camera_id, tracked, raw_weapon_detections)
-                self._latest_weapon_detections[camera_id] = weapon_detections
-                self._last_weapon_inference[camera_id] = time.monotonic()
-
-        zones = self._zones.get(camera_id, [])
-        for det in tracked:
-            if det['class'] == 'person':
-                det['zone_type'] = self._detect_zone(camera_id, det['bbox'])
-
-        for det in tracked:
-            if det['class'] == 'person':
-                det['behavior'] = self.behavior_analyzer.analyze(camera_id, det, tracker)
-
-        for det in tracked:
-            if det['class'] == 'person':
-                det['perimeter'] = self.perimeter_detector.analyze(
-                    camera_id, det, tracker, zones,
-                )
-
-        if not self._generation_is_current(camera_id, generation):
-            return self._empty_result(frame)
-
-        alert = self.rule_engine.evaluate(
-            detections=tracked,
-            face_results=face_results,
-            active_zone=None,
-            zone_type=None,
-            camera_id=camera_id,
-            weapon_detections=weapon_detections,
-            tracker=tracker,
+    @staticmethod
+    def _bbox_center(bbox: Dict) -> tuple:
+        return (
+            bbox['x'] + bbox['width'] / 2,
+            bbox['y'] + bbox['height'] / 2,
         )
 
-        annotated = self._annotate_frame(frame, tracked, face_results, has_motion, weapon_detections)
-        self._latest_annotated_frames[camera_id] = annotated
-        self._pipeline_latency.record((time.perf_counter() - pipeline_started) * 1000)
+    @classmethod
+    def _is_near_veto(cls, weapon_bbox: Dict, veto_bbox: Dict) -> bool:
+        center_x, center_y = cls._bbox_center(weapon_bbox)
+        return (
+            veto_bbox['x'] - veto_bbox['width'] <= center_x
+            <= veto_bbox['x'] + veto_bbox['width'] * 2
+            and veto_bbox['y'] - veto_bbox['height'] <= center_y
+            <= veto_bbox['y'] + veto_bbox['height'] * 2
+        )
 
-        if alert:
-            self._increment_stat('total_alerts')
-            timestamp = time.time()
-            event_time = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(timestamp))
-            event_id = f"{event_time}_{int(timestamp * 1000) % 1000:03d}_{uuid.uuid4().hex[:8]}"
-            clip_path = os.path.join(config.EVIDENCE_DIR, f"alert_{event_id}.mp4")
-            if not self.video_buffer.save_clip(camera_id, timestamp, clip_path):
-                clip_path = ""
+    @staticmethod
+    def _inside_expanded_person(point: tuple, person_bbox: Dict) -> bool:
+        px, py = point
+        margin_x = person_bbox['width'] * 0.08
+        margin_y = person_bbox['height'] * 0.08
+        return (
+            person_bbox['x'] - margin_x <= px
+            <= person_bbox['x'] + person_bbox['width'] + margin_x
+            and person_bbox['y'] - margin_y <= py
+            <= person_bbox['y'] + person_bbox['height'] + margin_y
+        )
 
-            snapshot_path = ""
-            try:
-                snap_name = f"alert_{event_id}.jpg"
-                snapshot_path = os.path.join(config.EVIDENCE_DIR, snap_name)
-                if not cv2.imwrite(snapshot_path, annotated):
-                    raise RuntimeError("OpenCV could not write the snapshot")
-            except Exception as e:
-                print(f"[{camera_id}] Failed to save snapshot: {e}")
-                snapshot_path = ""
+    def _associate_weapon_ids(self, people: List[Dict], weapons: List[Dict]):
+        for weapon in weapons:
+            center = self._bbox_center(weapon['bbox'])
+            candidates = [
+                person for person in people
+                if self._inside_expanded_person(center, person['bbox'])
+                and self._weapon_fits_person(weapon, person['bbox'])
+            ]
+            if candidates:
+                person = min(
+                    candidates,
+                    key=lambda item: self._center_distance(center, item['bbox']))
+                weapon['associated_tracking_id'] = person.get('tracking_id')
 
-            if (self._alert_callback
-                    and self._generation_is_current(camera_id, generation)):
-                self._alert_callback(camera_id, alert, clip_path, snapshot_path)
+    def _associate_weapons(self, people: List[Dict], weapons: List[Dict]):
+        self._associate_weapon_ids(people, weapons)
+        self._attach_confirmed_weapons(people, weapons)
 
-        if should_detect_objects and tracked:
-            self._increment_stat('total_detections', len(tracked))
-
-        if (self._detection_callback
-                and self._generation_is_current(camera_id, generation)):
-            self._detection_callback(camera_id, tracked, face_results)
-
-        return {
-            'detections': tracked,
-            'face_results': face_results,
-            'weapon_detections': weapon_detections,
-            'alert': alert,
-            'has_motion': has_motion,
-            'annotated_frame': annotated,
-        }
-
-    def _confirm_weapon_detections(self, camera_id: str, detections: List[Dict],
-                                   weapon_detections: List[Dict]) -> List[Dict]:
-        persons = [d for d in detections if d.get('class') == 'person']
+    def _confirm_weapon_detections(self, camera_id: str,
+                                   people_or_weapons: List[Dict],
+                                   weapons: Optional[List[Dict]] = None) -> List[Dict]:
+        if weapons is None:
+            weapons = people_or_weapons
+        else:
+            self._associate_weapon_ids(people_or_weapons, weapons)
         hits = set()
+        for weapon in weapons:
+            owner = weapon.get('associated_tracking_id')
+            owner_key = owner if owner is not None else 'standalone'
+            key = f"{camera_id}:{owner_key}:{weapon['class'].lower()}"
+            weapon['_history_key'] = key
+            hits.add(key)
 
-        for weapon in weapon_detections:
-            best_person = None
-            best_score = 0.0
-            for person in persons:
-                score = self._weapon_person_score(person['bbox'], weapon['bbox'])
-                if score > best_score:
-                    best_score = score
-                    best_person = person
-            if best_person is not None and best_score >= 0.5:
-                tracking_id = best_person.get('tracking_id')
-                weapon['associated_tracking_id'] = tracking_id
-                key = f"{camera_id}:{tracking_id}:{weapon['class'].lower()}"
-                hits.add(key)
-
-        camera_prefix = f"{camera_id}:"
-        active_keys = {key for key in self._weapon_history if key.startswith(camera_prefix)} | hits
-        for key in active_keys:
+        prefix = f"{camera_id}:"
+        active = {
+            key for key in self._weapon_history if key.startswith(prefix)} | hits
+        for key in active:
             history = self._weapon_history.setdefault(
                 key, deque(maxlen=max(1, config.WEAPON_CONFIRM_WINDOW)))
             history.append(key in hits)
             if not any(history):
                 self._weapon_history.pop(key, None)
 
-        for weapon in weapon_detections:
-            tracking_id = weapon.get('associated_tracking_id')
-            if tracking_id is None:
-                weapon['confirmed'] = False
-                continue
-            key = f"{camera_id}:{tracking_id}:{weapon['class'].lower()}"
-            history = self._weapon_history.get(key, ())
+        for weapon in weapons:
+            history = self._weapon_history.get(weapon.pop('_history_key'), ())
             weapon['confirmation_hits'] = sum(history)
             weapon['confirmation_window'] = len(history)
-            weapon['confirmed'] = sum(history) >= max(1, config.WEAPON_CONFIRM_HITS)
+            weapon['confirmed'] = (
+                sum(history) >= max(1, config.WEAPON_CONFIRM_HITS))
+        return weapons
 
-        return weapon_detections
+    @staticmethod
+    def _attach_confirmed_weapons(people: List[Dict], weapons: List[Dict]):
+        by_tracking_id = {
+            person.get('tracking_id'): person
+            for person in people if person.get('tracking_id') is not None
+        }
+        for weapon in weapons:
+            person = by_tracking_id.get(weapon.get('associated_tracking_id'))
+            if person is None:
+                continue
+            current = person.get('weapon')
+            if current is None or weapon['confidence'] > current['confidence']:
+                person['weapon'] = weapon
 
-    def _weapon_person_score(self, person_bbox: Dict, weapon_bbox: Dict) -> float:
-        px1 = person_bbox['x'] - person_bbox['width'] * 0.1
-        py1 = person_bbox['y'] - person_bbox['height'] * 0.05
-        px2 = person_bbox['x'] + person_bbox['width'] * 1.1
-        py2 = person_bbox['y'] + person_bbox['height'] * 1.05
-        wx1, wy1 = weapon_bbox['x'], weapon_bbox['y']
-        wx2 = wx1 + weapon_bbox['width']
-        wy2 = wy1 + weapon_bbox['height']
-        intersection = max(0, min(px2, wx2) - max(px1, wx1)) * max(0, min(py2, wy2) - max(py1, wy1))
-        weapon_area = max(1, weapon_bbox['width'] * weapon_bbox['height'])
-        center_inside = px1 <= (wx1 + wx2) / 2 <= px2 and py1 <= (wy1 + wy2) / 2 <= py2
-        return max(intersection / weapon_area, 1.0 if center_inside else 0.0)
+    @staticmethod
+    def _standalone_weapons(people: List[Dict], weapons: List[Dict]) -> List[Dict]:
+        associated = {id(person['weapon']) for person in people if person.get('weapon')}
+        return [
+            {
+                'class': 'weapon',
+                'confidence': weapon['confidence'],
+                'bbox': dict(weapon['bbox']),
+                'weapon': weapon,
+                'standalone_weapon': True,
+            }
+            for weapon in weapons if id(weapon) not in associated
+        ]
 
-    def _annotate_frame(self, frame, detections, face_results, has_motion, weapon_detections=None):
+    @staticmethod
+    def _weapon_fits_person(weapon: Dict, person_bbox: Dict) -> bool:
+        weapon_bbox = weapon['bbox']
+        weapon_area = weapon_bbox['width'] * weapon_bbox['height']
+        person_area = person_bbox['width'] * person_bbox['height']
+        aspect_ratio = weapon_bbox['width'] / max(weapon_bbox['height'], 1)
+        if weapon.get('confidence', 0) >= 0.65:
+            return (
+                person_area > 0
+                and weapon_bbox['width'] <= person_bbox['width'] * 1.20
+                and weapon_bbox['height'] <= person_bbox['height'] * 1.25
+                and weapon_area <= person_area * 1.25
+                and (weapon.get('class') != 'gun' or aspect_ratio >= 0.50)
+            )
+        return (
+            person_area > 0
+            and weapon_bbox['width'] <= person_bbox['width'] * 0.90
+            and weapon_bbox['height'] <= person_bbox['height'] * 0.60
+            and weapon_area <= person_area * 0.40
+            and (
+                weapon.get('class') != 'gun'
+                or weapon_bbox['height'] < 40
+                or aspect_ratio >= 0.50
+            )
+        )
+
+    def _associate_face_covers(self, people: List[Dict], covers: List[Dict]):
+        for cover in covers:
+            center_x, center_y = self._bbox_center(cover['bbox'])
+            candidates = []
+            for person in people:
+                bbox = person['bbox']
+                in_head = (
+                    bbox['x'] - bbox['width'] * 0.1 <= center_x
+                    <= bbox['x'] + bbox['width'] * 1.1
+                    and bbox['y'] - bbox['height'] * 0.1 <= center_y
+                    <= bbox['y'] + bbox['height'] * 0.55
+                )
+                if in_head and self._face_cover_fits_person(cover['bbox'], bbox):
+                    candidates.append(person)
+            if candidates:
+                person = min(
+                    candidates,
+                    key=lambda item: self._center_distance(
+                        (center_x, center_y), item['bbox']))
+                current = person.get('face_cover')
+                if current is None or cover['confidence'] > current['confidence']:
+                    person['face_cover'] = cover
+
+    @staticmethod
+    def _face_cover_fits_person(cover_bbox: Dict, person_bbox: Dict) -> bool:
+        return (
+            person_bbox['width'] > 0
+            and person_bbox['height'] > 0
+            and cover_bbox['width'] <= person_bbox['width'] * 0.70
+            and cover_bbox['height'] <= person_bbox['height']
+        )
+
+    @staticmethod
+    def _center_distance(point: tuple, bbox: Dict) -> float:
+        cx = bbox['x'] + bbox['width'] / 2
+        cy = bbox['y'] + bbox['height'] / 2
+        return (point[0] - cx) ** 2 + (point[1] - cy) ** 2
+
+    def _emit_alert(self, camera_id: str, alert: Dict,
+                    annotated_frame: np.ndarray):
+        timestamp = time.time()
+        event_time = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(timestamp))
+        event_id = f"{event_time}_{uuid.uuid4().hex[:8]}"
+        clip_path = os.path.join(config.EVIDENCE_DIR, f"alert_{event_id}.mp4")
+        snapshot_path = os.path.join(config.EVIDENCE_DIR, f"alert_{event_id}.jpg")
+        try:
+            if not cv2.imwrite(snapshot_path, annotated_frame):
+                snapshot_path = ''
+        except Exception as exc:
+            print(f"[{camera_id}] Failed to save snapshot: {exc}")
+            snapshot_path = ''
+        threading.Thread(
+            target=self._save_alert_evidence,
+            args=(camera_id, alert, timestamp, clip_path, snapshot_path),
+            daemon=True,
+        ).start()
+
+    def _save_alert_evidence(self, camera_id: str, alert: Dict,
+                             timestamp: float, clip_path: str,
+                             snapshot_path: str):
+        clip_saved = self.video_buffer.save_clip(
+            camera_id, timestamp, clip_path, post_seconds=0)
+        if self._alert_callback:
+            self._alert_callback(
+                camera_id, alert, clip_path if clip_saved else '', snapshot_path)
+        if clip_saved and config.POST_EVENT_SECONDS > 0:
+            time.sleep(config.POST_EVENT_SECONDS)
+            if not self.video_buffer.save_clip(camera_id, timestamp, clip_path):
+                print(f"[{camera_id}] Failed to extend evidence clip: {clip_path}")
+
+    @staticmethod
+    def _annotate_frame(frame: np.ndarray, detections: List[Dict],
+                        show_people: bool = False) -> np.ndarray:
         annotated = frame.copy()
+        for detection in detections:
+            confirmed = detection.get('confirmed_threats', {})
+            weapon = confirmed.get('weapon_detected') or detection.get('weapon')
+            face_cover = confirmed.get('face_covered') or detection.get('face_cover')
+            if not weapon and not face_cover:
+                if show_people and detection.get('class') == 'person':
+                    bbox = detection['bbox']
+                    x, y = bbox['x'], bbox['y']
+                    width, height = bbox['width'], bbox['height']
+                    label = 'PERSONA'
+                    if detection.get('tracking_id') is not None:
+                        label += f" #{detection['tracking_id']}"
+                    cv2.rectangle(
+                        annotated, (x, y), (x + width, y + height),
+                        (0, 255, 0), 3)
+                    cv2.putText(
+                        annotated, label, (x, max(25, y - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
+                continue
 
-        if has_motion:
-            cv2.putText(annotated, "MOTION", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-        for det in detections:
-            bbox = det['bbox']
-            x, y, w, h = bbox['x'], bbox['y'], bbox['width'], bbox['height']
-            color = (0, 255, 0) if det['class'] == 'person' else (255, 165, 0)
-
-            behavior = det.get('behavior', {})
-            if behavior.get('face_covered'):
-                color = (0, 165, 255)
-            speed = behavior.get('speed_level', 'still')
-            if speed in ('running', 'sprinting'):
-                color = (0, 0, 255)
-
-            cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 2)
-            label = f"{det['class']} {det['confidence']:.2f}"
-            if det.get('tracking_id') is not None:
-                label += f" #{det['tracking_id']}"
-            cv2.putText(annotated, label, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-            if behavior.get('face_covered'):
-                cv2.putText(annotated, "FACE COVERED", (x, y + h + 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
-            if speed in ('running', 'sprinting'):
-                cv2.putText(annotated, f"RUNNING ({behavior.get('speed_value', 0):.0f}px/s)", (x, y + h + 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-
-        if weapon_detections:
-            for wd in weapon_detections:
-                wb = wd['bbox']
-                cv2.rectangle(annotated, (wb['x'], wb['y']),
-                              (wb['x'] + wb['width'], wb['y'] + wb['height']),
-                              (0, 0, 255), 3)
-                state = "CONFIRMED" if wd.get('confirmed') else "VERIFYING"
-                cv2.putText(annotated, f"{state}: {wd['class']} {wd['confidence']:.2f}",
-                            (wb['x'], wb['y'] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
-        for face in face_results:
-            bbox = face['bbox']
-            x, y, w, h = bbox['x'], bbox['y'], bbox['width'], bbox['height']
-            color = (0, 255, 0) if face['is_known'] else (0, 0, 255)
-            cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 2)
-            label = face.get('person_id', 'UNKNOWN')
-            cv2.putText(annotated, label, (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
+            bbox = detection['bbox']
+            x, y, width, height = (
+                bbox['x'], bbox['y'], bbox['width'], bbox['height'])
+            has_weapon = weapon is not None
+            color = (0, 0, 255) if has_weapon else (0, 165, 255)
+            label = 'PERSONA ARMADA' if has_weapon else 'ROSTRO CUBIERTO'
+            if not detection.get('standalone_weapon'):
+                cv2.rectangle(
+                    annotated, (x, y), (x + width, y + height), color, 4)
+                cv2.putText(
+                    annotated, label, (x, max(25, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            if weapon:
+                wb = weapon['bbox']
+                cv2.rectangle(
+                    annotated, (wb['x'], wb['y']),
+                    (wb['x'] + wb['width'], wb['y'] + wb['height']),
+                    (0, 0, 255), 4)
+                weapon_name = 'ARMA' if weapon['class'] == 'gun' else 'CUCHILLO'
+                cv2.putText(
+                    annotated, f"{weapon_name} {weapon['confidence']:.0%}",
+                    (wb['x'], max(25, wb['y'] - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+            if face_cover:
+                fb = face_cover['bbox']
+                cv2.rectangle(
+                    annotated, (fb['x'], fb['y']),
+                    (fb['x'] + fb['width'], fb['y'] + fb['height']),
+                    (0, 165, 255), 3)
+                cv2.putText(
+                    annotated, f"CARA TAPADA {face_cover['confidence']:.0%}",
+                    (fb['x'], max(25, fb['y'] - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
         return annotated
 
     def get_source_info(self, source_id: str) -> Optional[dict]:
         with self._lock:
-            if source_id in self.sources:
-                return self.sources[source_id].get_info()
-        return None
+            source = self.sources.get(source_id)
+            return source.get_info() if source else None
 
     def get_all_sources_info(self) -> list:
         with self._lock:
-            return [s.get_info() for s in self.sources.values()]
+            return [source.get_info() for source in self.sources.values()]
 
     def get_stats(self) -> dict:
         with self._stats_lock:
@@ -512,12 +612,20 @@ class FrameProcessor:
         with self._stats_lock:
             self._stats[name] += amount
 
-    def get_snapshot(self, source_id: str) -> Optional[np.ndarray]:
+    def get_snapshot(self, source_id: str, view: str = 'raw',
+                     show_people: bool = False) -> Optional[np.ndarray]:
         with self._lock:
-            annotated = self._latest_annotated_frames.get(source_id)
-            if annotated is not None:
-                return annotated.copy()
-            if source_id in self.sources:
-                source = self.sources[source_id]
-                return source._current_frame.copy() if source._current_frame is not None else None
-        return None
+            source = self.sources.get(source_id)
+            if source and source._current_frame is not None:
+                frame = source._current_frame.copy()
+            else:
+                return None
+        if view == 'annotated':
+            with self._frame_lock:
+                annotated = self._latest_annotated_frames.get(source_id)
+                if annotated is not None and not show_people:
+                    return annotated.copy()
+                result = self._latest_results.get(source_id, self._empty_result())
+            return self._annotate_frame(
+                frame, result['detections'], show_people=show_people)
+        return frame

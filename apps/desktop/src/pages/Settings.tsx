@@ -81,6 +81,8 @@ export default function Settings() {
           <SettingRange label="Sensibilidad movimiento" value={config.ai.motion_sensitivity}
             min={0.1} max={1} step={0.05}
             onChange={v => updateSection('ai', 'motion_sensitivity', v)} />
+          <SettingToggle label="Marcar personas en verde" checked={config.ai.show_people_overlay}
+            onChange={v => updateSection('ai', 'show_people_overlay', v)} />
         </SettingsSection>
 
         <SettingsSection title="🔔 Alertas">

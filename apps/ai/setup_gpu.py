@@ -48,13 +48,16 @@ def main():
         "--no-deps", "onnxruntime-gpu==1.18.0", "--index-url", ort_index,
     )
 
+    assertions = "" if args.force else (
+        "assert torch.cuda.is_available(); "
+        "assert 'CUDAExecutionProvider' in ort.get_available_providers()"
+    )
     verify = (
         "import torch, onnxruntime as ort; "
         "print('CUDA available:', torch.cuda.is_available()); "
         "print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none'); "
         "print('ONNX providers:', ort.get_available_providers()); "
-        "assert torch.cuda.is_available(); "
-        "assert 'CUDAExecutionProvider' in ort.get_available_providers()"
+        + assertions
     )
     run(python, "-c", verify)
 

@@ -7,9 +7,10 @@ const DEFAULTS: Record<string, Record<string, any>> = {
   ai: {
     yolo_model: 'yolov8n.pt',
     confidence_threshold: 0.5,
-    inference_fps: 5,
+    inference_fps: 10,
     face_threshold: 0.6,
     motion_sensitivity: 0.5,
+    show_people_overlay: false,
   },
   alerts: {
     cooldown_seconds: 60,

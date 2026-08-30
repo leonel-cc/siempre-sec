@@ -21,8 +21,11 @@ FACE_RECOGNITION_THRESHOLD = float(os.getenv("FACE_RECOGNITION_THRESHOLD", "0.6"
 MOTION_SENSITIVITY = float(os.getenv("MOTION_SENSITIVITY", "0.5"))
 
 DETECTION_CLASSES = [
-    "person", "car", "motorcycle", "bicycle", "dog", "cat",
+    "person", "car", "motorcycle", "bicycle", "dog", "cat", "cell phone",
+    "bottle",
 ]
+WEAPON_VETO_CLASSES = {"cell phone", "bottle"}
+WEAPON_VETO_CONFIDENCE = float(os.getenv("WEAPON_VETO_CONFIDENCE", "0.10"))
 
 ALERT_COOLDOWN_SECONDS = int(os.getenv("ALERT_COOLDOWN_SECONDS", "60"))
 BUFFER_DURATION_SECONDS = int(os.getenv("BUFFER_DURATION_SECONDS", "30"))
@@ -31,33 +34,66 @@ POST_EVENT_SECONDS = int(os.getenv("POST_EVENT_SECONDS", "15"))
 
 EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", "./evidence")
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
+MODEL_DIR = os.getenv(
+    "MODEL_DIR", os.path.join(os.path.expanduser("~"), ".security-ai", "models"))
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-WEAPON_MODEL = os.getenv("WEAPON_MODEL", "Subh775/Threat-Detection-YOLOv8n")
-WEAPON_MODEL_PATH = os.getenv("WEAPON_MODEL_PATH", "")
-WEAPON_MODEL_FILENAME = os.getenv("WEAPON_MODEL_FILENAME", "weights/best.pt")
-WEAPON_MODEL_REVISION = os.getenv(
-    "WEAPON_MODEL_REVISION", "c6d6fa4e6c9bfd4c4fccb46478db23609e5468fb")
-WEAPON_CONFIDENCE_THRESHOLD = float(os.getenv("WEAPON_CONFIDENCE_THRESHOLD", "0.4"))
+WEAPON_MODEL = os.getenv("WEAPON_MODEL", "Hadi959/weapon-detection-yolov8")
+WEAPON_MODEL_PATH = os.getenv(
+    "WEAPON_MODEL_PATH", os.path.join(MODEL_DIR, "weapon-best.pt"))
+WEAPON_MODEL_FILENAME = os.getenv("WEAPON_MODEL_FILENAME", "best.pt")
+WEAPON_MODEL_REVISION = os.getenv("WEAPON_MODEL_REVISION", "")
+WEAPON_VERIFIER_MODEL = os.getenv(
+    "WEAPON_VERIFIER_MODEL", "Subh775/Threat-Detection-YOLOv8n")
+WEAPON_VERIFIER_MODEL_PATH = os.getenv(
+    "WEAPON_VERIFIER_MODEL_PATH", os.path.join(MODEL_DIR, "weapon-verifier.pt"))
+WEAPON_VERIFIER_CONFIDENCE = float(os.getenv("WEAPON_VERIFIER_CONFIDENCE", "0.15"))
+WEAPON_CONFIDENCE_THRESHOLD = float(os.getenv("WEAPON_CONFIDENCE_THRESHOLD", "0.30"))
+KNIFE_CONFIDENCE_THRESHOLD = float(os.getenv("KNIFE_CONFIDENCE_THRESHOLD", "0.50"))
 WEAPON_ENABLED = os.getenv("WEAPON_ENABLED", "true").lower() == "true"
 WEAPON_INFERENCE_FPS = float(os.getenv("WEAPON_INFERENCE_FPS", "0"))
 CPU_WEAPON_INFERENCE_FPS = float(os.getenv("CPU_WEAPON_INFERENCE_FPS", "5"))
 GPU_WEAPON_INFERENCE_FPS = float(os.getenv("GPU_WEAPON_INFERENCE_FPS", "10"))
-WEAPON_IMAGE_SIZE = int(os.getenv("WEAPON_IMAGE_SIZE", "960"))
+WEAPON_INFERENCE_SIZE = int(os.getenv("WEAPON_INFERENCE_SIZE", "960"))
+WEAPON_IMAGE_SIZE = int(os.getenv("WEAPON_IMAGE_SIZE", str(WEAPON_INFERENCE_SIZE)))
 WEAPON_IOU_THRESHOLD = float(os.getenv("WEAPON_IOU_THRESHOLD", "0.5"))
 WEAPON_CLASSES = {
     name.strip().lower()
-    for name in os.getenv(
-        "WEAPON_CLASSES", "gun,knife").split(",")
+    for name in os.getenv("WEAPON_CLASSES", "gun,knife").split(",")
     if name.strip()
 }
-WEAPON_CONFIRM_HITS = int(os.getenv("WEAPON_CONFIRM_HITS", "2"))
-WEAPON_CONFIRM_WINDOW = int(os.getenv("WEAPON_CONFIRM_WINDOW", "3"))
+WEAPON_CONFIRMATIONS = int(os.getenv("WEAPON_CONFIRMATIONS", "2"))
+WEAPON_CONFIRMATION_WINDOW = int(os.getenv("WEAPON_CONFIRMATION_WINDOW", "8"))
+WEAPON_CONFIRM_HITS = int(os.getenv("WEAPON_CONFIRM_HITS", str(WEAPON_CONFIRMATIONS)))
+WEAPON_CONFIRM_WINDOW = int(os.getenv("WEAPON_CONFIRM_WINDOW", str(WEAPON_CONFIRMATION_WINDOW)))
 
-SPEED_WALKING_THRESHOLD = float(os.getenv("SPEED_WALKING_THRESHOLD", "150"))
-SPEED_RUNNING_THRESHOLD = float(os.getenv("SPEED_RUNNING_THRESHOLD", "400"))
-SPEED_SPRINTING_THRESHOLD = float(os.getenv("SPEED_SPRINTING_THRESHOLD", "700"))
+FACE_COVER_MODEL_URL = os.getenv(
+    "FACE_COVER_MODEL_URL",
+    "https://raw.githubusercontent.com/STAVAN04/face_covered_or_uncovered_detection/"
+    "1791c6e7deee9c1d0092341ceff605eab196687d/best.pt",
+)
+FACE_COVER_MODEL_PATH = os.getenv(
+    "FACE_COVER_MODEL_PATH", os.path.join(MODEL_DIR, "face-cover-best.pt"))
+VISIBLE_FACE_MODEL_URL = os.getenv(
+    "VISIBLE_FACE_MODEL_URL",
+    "https://raw.githubusercontent.com/opencv/opencv_zoo/"
+    "f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/"
+    "face_detection_yunet_2023mar.onnx",
+)
+VISIBLE_FACE_MODEL_PATH = os.getenv(
+    "VISIBLE_FACE_MODEL_PATH", os.path.join(MODEL_DIR, "face-detection-yunet.onnx"))
+FACE_COVER_CONFIDENCE_THRESHOLD = float(os.getenv("FACE_COVER_CONFIDENCE_THRESHOLD", "0.50"))
+FACE_COVER_ENABLED = os.getenv("FACE_COVER_ENABLED", "true").lower() == "true"
+FACE_COVER_CONFIRMATIONS = int(os.getenv("FACE_COVER_CONFIRMATIONS", "5"))
+FACE_COVER_CONFIRMATION_WINDOW = int(os.getenv("FACE_COVER_CONFIRMATION_WINDOW", "8"))
+THREAT_CLEAR_OBSERVATIONS = int(os.getenv("THREAT_CLEAR_OBSERVATIONS", "50"))
+THREAT_MIN_REARM_SECONDS = int(os.getenv("THREAT_MIN_REARM_SECONDS", "60"))
+
+SPEED_WALKING_THRESHOLD = float(os.getenv("SPEED_WALKING_THRESHOLD", "250"))
+SPEED_RUNNING_THRESHOLD = float(os.getenv("SPEED_RUNNING_THRESHOLD", "600"))
+SPEED_SPRINTING_THRESHOLD = float(os.getenv("SPEED_SPRINTING_THRESHOLD", "900"))
 LOITERING_THRESHOLD_SECONDS = float(os.getenv("LOITERING_THRESHOLD_SECONDS", "30"))
 SUSPICIOUS_BEHAVIOR_CONFIRM_SECONDS = float(os.getenv("SUSPICIOUS_BEHAVIOR_CONFIRM_SECONDS", "1.0"))
-TRAJECTORY_ANOMALY_THRESHOLD = float(os.getenv("TRAJECTORY_ANOMALY_THRESHOLD", "0.7"))
+TRAJECTORY_ANOMALY_THRESHOLD = float(os.getenv("TRAJECTORY_ANOMALY_THRESHOLD", "0.85"))
 FACE_COVERED_MIN_BBOX_HEIGHT = int(os.getenv("FACE_COVERED_MIN_BBOX_HEIGHT", "80"))
 PERIMETER_APPROACH_DISTANCE = float(os.getenv("PERIMETER_APPROACH_DISTANCE", "100"))

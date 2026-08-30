@@ -7,6 +7,8 @@ export var EventType;
     EventType["RESTRICTED_ZONE"] = "RESTRICTED_ZONE";
     EventType["VEHICLE_DETECTED"] = "VEHICLE_DETECTED";
     EventType["SECURITY_ALERT"] = "SECURITY_ALERT";
+    EventType["WEAPON_DETECTED"] = "WEAPON_DETECTED";
+    EventType["FACE_COVERED"] = "FACE_COVERED";
 })(EventType || (EventType = {}));
 export var EventStatus;
 (function (EventStatus) {

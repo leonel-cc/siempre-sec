@@ -42,7 +42,10 @@ class YoloDetector:
                     results = self.model.predict(
                         source=frame,
                         verbose=False,
-                        conf=self.confidence_threshold,
+                        conf=min(
+                            self.confidence_threshold,
+                            config.WEAPON_VETO_CONFIDENCE,
+                        ),
                         device=self.device,
                     )
                 except Exception as exc:
@@ -54,7 +57,10 @@ class YoloDetector:
                     results = self.model.predict(
                         source=frame,
                         verbose=False,
-                        conf=self.confidence_threshold,
+                        conf=min(
+                            self.confidence_threshold,
+                            config.WEAPON_VETO_CONFIDENCE,
+                        ),
                         device="cpu",
                     )
         finally:
@@ -75,7 +81,12 @@ class YoloDetector:
                     continue
 
                 confidence = float(box.conf[0])
-                if confidence < self.confidence_threshold:
+                threshold = (
+                    config.WEAPON_VETO_CONFIDENCE
+                    if class_name in config.WEAPON_VETO_CLASSES
+                    else self.confidence_threshold
+                )
+                if confidence < threshold:
                     continue
 
                 x1, y1, x2, y2 = box.xyxy[0].tolist()

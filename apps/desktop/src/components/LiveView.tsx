@@ -10,11 +10,15 @@ export default function LiveView({ cameraId, onClose }: LiveViewProps) {
   const [camera, setCamera] = useState<any>(null);
   const [streamReady, setStreamReady] = useState(false);
   const [streamError, setStreamError] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
 
   useEffect(() => {
     setStreamReady(false);
     setStreamError(false);
     loadCamera();
+    api.settings.getSection('ai')
+      .then(settings => setShowPeople(Boolean(settings.show_people_overlay)))
+      .catch(console.error);
   }, [cameraId]);
 
   async function loadCamera() {
@@ -46,7 +50,7 @@ export default function LiveView({ cameraId, onClose }: LiveViewProps) {
       <div className="relative bg-black aspect-video flex items-center justify-center">
         {!streamError ? (
           <img
-            src={`${AI_BASE}/sources/${cameraId}/stream`}
+            src={`${AI_BASE}/sources/${cameraId}/stream?view=annotated&show_people=${showPeople}`}
             alt={camera?.name || cameraId}
             className="max-w-full max-h-full"
             onLoad={() => setStreamReady(true)}
