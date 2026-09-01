@@ -10,8 +10,12 @@
   "scripts": {
     "dev:desktop": "npm run dev --workspace=apps/desktop",
     "dev:backend": "npm run start:dev --workspace=apps/backend",
+    "dev:cloud": "npm run start:dev --workspace=apps/cloud-api",
+    "dev:web": "npm run dev --workspace=apps/cloud-web",
     "build:desktop": "npm run build --workspace=apps/desktop",
     "build:backend": "node -e \"const fs=require('fs'),p=require('path');['tsconfig.tsbuildinfo','tsconfig.build.tsbuildinfo','dist'].forEach(f=>{const fp=p.join('apps/backend',f);try{fs.rmSync(fp,{recursive:true,force:true})}catch(e){}})\" && npm run build --workspace=apps/backend",
+    "build:cloud": "npm run build --workspace=apps/cloud-api",
+    "build:web": "npm run build --workspace=apps/cloud-web",
     "build:shared": "npm run build --workspace=packages/shared",
     "build:bundle": "node apps/desktop/scripts/build-bundle.js",
     "build:installer": "installer\\build-installer.bat",

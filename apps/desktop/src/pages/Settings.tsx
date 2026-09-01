@@ -6,10 +6,50 @@ export default function Settings() {
   const [config, setConfig] = useState<Record<string, Record<string, any>> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<CloudEnrollmentStatus>({ state: 'UNENROLLED' });
+  const [cloudUrl, setCloudUrl] = useState('https://');
+  const [installationName, setInstallationName] = useState('Security AI');
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState('');
 
   useEffect(() => {
     api.settings.getAll().then(setConfig).catch(console.error);
+    window.electronAPI?.cloudEnrollment.status().then(status => {
+      setCloudStatus(status);
+      if (status.cloudUrl) setCloudUrl(status.cloudUrl);
+    }).catch(console.error);
   }, []);
+
+  async function requestEnrollment() {
+    if (!window.electronAPI) return;
+    setCloudBusy(true);
+    setCloudError('');
+    try {
+      setCloudStatus(await window.electronAPI.cloudEnrollment.request(cloudUrl, installationName));
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function finishEnrollment() {
+    if (!window.electronAPI) return;
+    setCloudBusy(true);
+    setCloudError('');
+    try {
+      setCloudStatus(await window.electronAPI.cloudEnrollment.exchange());
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function clearEnrollment() {
+    if (!window.electronAPI) return;
+    setCloudStatus(await window.electronAPI.cloudEnrollment.clear());
+  }
 
   function updateSection(section: string, key: string, value: any) {
     setConfig(prev => {
@@ -101,18 +141,52 @@ export default function Settings() {
             onChange={v => updateSection('storage', 'retention_days', parseInt(v) || 30)} />
         </SettingsSection>
 
-        <SettingsSection title="📱 WhatsApp">
-          <SettingToggle label="Habilitado" checked={config.whatsapp.enabled}
-            onChange={v => updateSection('whatsapp', 'enabled', v)} />
-          <SettingInput label="API Token" value={config.whatsapp.api_token} type="password"
-            placeholder="Tu token de WhatsApp Business API"
-            onChange={v => updateSection('whatsapp', 'api_token', v)} />
-          <SettingInput label="Phone Number ID" value={config.whatsapp.phone_number_id}
-            placeholder="ID del número de teléfono"
-            onChange={v => updateSection('whatsapp', 'phone_number_id', v)} />
-          <SettingInput label="Número destinatario" value={config.whatsapp.recipient_number}
-            placeholder="+5491155551234"
-            onChange={v => updateSection('whatsapp', 'recipient_number', v)} />
+        <SettingsSection title="Nube y acceso remoto">
+          {cloudStatus.state === 'UNENROLLED' && <>
+            <SettingInput label="URL del servicio" value={cloudUrl}
+              placeholder="https://api.security-ai.example"
+              onChange={setCloudUrl} />
+            <SettingInput label="Nombre de instalación" value={installationName}
+              onChange={setInstallationName} />
+            <button onClick={requestEnrollment} disabled={cloudBusy}
+              className="w-full rounded bg-security-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {cloudBusy ? 'Conectando...' : 'Vincular instalación'}
+            </button>
+          </>}
+          {cloudStatus.state === 'PENDING' && <div className="space-y-3">
+            <p className="text-sm text-gray-400">Inicia sesión en el portal y aprueba este código:</p>
+            <div className="rounded-lg border border-security-500/40 bg-security-950 px-4 py-3 text-center font-mono text-2xl tracking-widest text-security-300">
+              {cloudStatus.userCode}
+            </div>
+            <button onClick={finishEnrollment} disabled={cloudBusy}
+              className="w-full rounded bg-security-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {cloudBusy ? 'Verificando...' : 'Ya aprobé el código'}
+            </button>
+          </div>}
+          {cloudStatus.state === 'ENROLLED' && <div className="space-y-3">
+            <div className="rounded-lg border border-green-800 bg-green-950/30 px-3 py-2 text-sm text-green-300">
+              Instalación vinculada y sincronización activa
+            </div>
+            <p className="break-all text-xs text-gray-500">{cloudStatus.installationId}</p>
+            <button onClick={clearEnrollment}
+              className="w-full rounded border border-red-900 px-3 py-2 text-sm text-red-300 hover:bg-red-950/40">
+              Desvincular instalación
+            </button>
+          </div>}
+          {cloudError && <p className="text-sm text-red-400">{cloudError}</p>}
+        </SettingsSection>
+
+        <SettingsSection title="WhatsApp">
+          <p className="text-sm leading-5 text-gray-400">
+            El número se configura y verifica desde tu cuenta cloud. Esta app no almacena tokens de Meta.
+          </p>
+          <div className={`rounded-lg border px-3 py-2 text-sm ${
+            cloudStatus.state === 'ENROLLED'
+              ? 'border-green-900 text-green-300'
+              : 'border-gray-800 text-gray-500'
+          }`}>
+            {cloudStatus.state === 'ENROLLED' ? 'Administrar número en el portal' : 'Vincula la instalación primero'}
+          </div>
         </SettingsSection>
 
         <SettingsSection title="📷 Cámaras">

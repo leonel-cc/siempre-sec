@@ -1,11 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Event } from './entities/event.entity';
 import { CreateEventDto } from '@security-ai/shared';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CamerasService } from '../cameras/cameras.service';
+import { CloudSyncService } from '../cloud/cloud-sync.service';
 
 @Injectable()
 export class EventsService {
@@ -17,6 +18,8 @@ export class EventsService {
     private readonly websocketGateway: WebsocketGateway,
     private readonly notificationsService: NotificationsService,
     private readonly camerasService: CamerasService,
+    private readonly cloudSync: CloudSyncService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async findAll(limit = 50, offset = 0): Promise<Event[]> {
@@ -51,7 +54,15 @@ export class EventsService {
       status: dto.status || 'NEW',
       metadata: dto.metadata ? JSON.stringify(dto.metadata) : undefined,
     });
-    const saved = await this.eventRepo.save(event);
+    let metadata: Record<string, any> = {};
+    try {
+      metadata = event.metadata ? JSON.parse(event.metadata) : {};
+    } catch {}
+    const saved = await this.dataSource.transaction(async manager => {
+      const persisted = await manager.save(Event, event);
+      await this.cloudSync.enqueueEvent(persisted, metadata, manager);
+      return persisted;
+    });
 
     this.websocketGateway.broadcastEvent({
       id: saved.id,
@@ -64,10 +75,6 @@ export class EventsService {
 
     const isSecurityAlert = ['WEAPON_DETECTED', 'FACE_COVERED'].includes(saved.eventType);
     if (isSecurityAlert) {
-      let metadata: Record<string, any> = {};
-      try {
-        metadata = saved.metadata ? JSON.parse(saved.metadata) : {};
-      } catch {}
       this.websocketGateway.broadcastAlert({
         id: saved.id,
         event_type: saved.eventType,
@@ -90,7 +97,7 @@ export class EventsService {
         cameraName = camera.name;
       } catch {}
 
-      this.notificationsService.send({
+      if (!this.cloudSync.enabled) this.notificationsService.send({
         title: saved.eventType === 'WEAPON_DETECTED'
           ? 'Arma o cuchillo detectado'
           : 'Rostro cubierto detectado',
@@ -98,7 +105,7 @@ export class EventsService {
         cameraName,
         timestamp: saved.timestamp || new Date().toISOString(),
         videoPath: saved.videoPath,
-      }).catch(err => this.logger.error(`WhatsApp notification failed: ${err}`));
+      }).catch(err => this.logger.error(`Local WhatsApp notification failed: ${err}`));
     }
 
     return saved;

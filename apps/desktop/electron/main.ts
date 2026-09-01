@@ -3,6 +3,13 @@ import path from 'path';
 import fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import net from 'net';
+import {
+  clearCloudEnrollment,
+  exchangeCloudEnrollment,
+  getCloudChildEnvironment,
+  getCloudEnrollmentStatus,
+  requestCloudEnrollment,
+} from './cloud-enrollment';
 
 const isDev = !app.isPackaged;
 
@@ -74,8 +81,8 @@ function buildChildEnv(extra: Record<string, string> = {}): Record<string, strin
     ...process.env,
     PATH: `${binDir}${pathSep}${existingPath}`,
     FFMPEG_PATH: path.join(binDir, 'ffmpeg.exe'),
-      MEDIAMTX_PATH: path.join(getMediaMTXDir(), 'mediamtx.exe'),
-      MODEL_DIR: getModelDir(),
+    MEDIAMTX_PATH: path.join(getMediaMTXDir(), 'mediamtx.exe'),
+    MODEL_DIR: getModelDir(),
     ...extra,
   };
 }
@@ -108,7 +115,7 @@ async function startBackend(): Promise<void> {
 
   console.log(`Starting backend: ${scriptPath}`);
 
-  backendProcess = spawn(process.execPath, [scriptPath], {
+  const child = spawn(process.execPath, [scriptPath], {
     cwd: backendDir,
     env: buildChildEnv({
       ELECTRON_RUN_AS_NODE: '1',
@@ -117,21 +124,23 @@ async function startBackend(): Promise<void> {
       BACKEND_PORT: String(BACKEND_PORT),
       AI_SERVICE_HOST: '127.0.0.1',
       AI_SERVICE_PORT: String(AI_PORT),
+      ...getCloudChildEnvironment(),
     }),
     stdio: 'pipe',
   });
+  backendProcess = child;
 
-  backendProcess.stdout?.on('data', (data) => {
+  child.stdout?.on('data', (data) => {
     console.log(`[Backend] ${data.toString().trim()}`);
   });
 
-  backendProcess.stderr?.on('data', (data) => {
+  child.stderr?.on('data', (data) => {
     console.error(`[Backend] ${data.toString().trim()}`);
   });
 
-  backendProcess.on('exit', (code) => {
+  child.on('exit', (code) => {
     console.log(`Backend exited with code ${code}`);
-    backendProcess = null;
+    if (backendProcess === child) backendProcess = null;
   });
 }
 
@@ -330,6 +339,20 @@ app.whenReady().then(async () => {
     return listUsbDevices();
   });
 
+  ipcMain.handle('cloud-enrollment-status', () => getCloudEnrollmentStatus());
+  ipcMain.handle('cloud-enrollment-request', (_event, cloudUrl: string, installationName: string) =>
+    requestCloudEnrollment(cloudUrl, installationName));
+  ipcMain.handle('cloud-enrollment-exchange', async () => {
+    const status = await exchangeCloudEnrollment();
+    await restartBackend();
+    return status;
+  });
+  ipcMain.handle('cloud-enrollment-clear', async () => {
+    const status = await clearCloudEnrollment();
+    await restartBackend();
+    return status;
+  });
+
   createWindow();
 
   startBackend().catch(e => console.error('Backend start error:', e));
@@ -359,6 +382,39 @@ function killProcess(proc: ChildProcess | null, name: string): ChildProcess | nu
   }
   console.log(`${name} stopped`);
   return null;
+}
+
+async function stopProcess(proc: ChildProcess | null, name: string): Promise<void> {
+  if (!proc || proc.exitCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 5_000);
+    const done = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    proc.once('exit', done);
+    if (process.platform === 'win32' && proc.pid) {
+      const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.once('error', () => proc.kill());
+    } else {
+      proc.kill();
+    }
+  });
+  console.log(`${name} stopped`);
+}
+
+async function restartBackend(): Promise<void> {
+  const previous = backendProcess;
+  if (backendProcess === previous) backendProcess = null;
+  await stopProcess(previous, 'Backend');
+  if (previous?.exitCode === null && previous.signalCode === null) {
+    backendProcess = previous;
+    throw new Error('Backend did not stop; restart the application to apply cloud settings');
+  }
+  await startBackend();
 }
 
 function killProcesses() {

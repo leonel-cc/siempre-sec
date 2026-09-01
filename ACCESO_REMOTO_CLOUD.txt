@@ -1,0 +1,295 @@
+SIEMPRE SECURITY AI - ACCESO REMOTO CLOUD
+==========================================
+
+1. ALCANCE IMPLEMENTADO
+-----------------------
+
+Esta entrega agrega un control plane cloud para acceder a las instalaciones
+locales desde cualquier ubicacion sin exponer directamente la red del cliente.
+Incluye:
+
+- Portal web con login OIDC usando Authorization Code + PKCE.
+- Organizaciones, membresias, invitaciones y roles.
+- Enrolamiento seguro de una instalacion Electron en una organizacion.
+- Inventario remoto de camaras sin copiar credenciales RTSP al cloud.
+- Eventos cloud idempotentes sin subir evidencias de video en este MVP.
+- Vista en vivo de multiples espectadores mediante LiveKit SFU.
+- Verificacion telefonica y alertas mediante Meta WhatsApp Cloud API.
+- Outbox local durable para reintentar eventos cuando no hay Internet.
+- Heartbeat, sincronizacion de camaras y comandos remotos START_LIVE.
+- Auditoria de acciones administrativas y sesiones en vivo.
+
+La operacion local permanece disponible cuando el cloud no esta configurado o
+cuando se pierde Internet. Las URL y credenciales de las camaras permanecen en
+la instalacion local.
+
+Cuando la instalacion esta enrolada, el cloud es el responsable unico de las
+alertas WhatsApp para evitar duplicados. Los fallos de Meta y la ausencia
+temporal de un destinatario verificado conservan el evento en la outbox para
+reintento. El adaptador WhatsApp local solo se usa sin enrolamiento cloud.
+
+
+2. ARQUITECTURA
+---------------
+
+Portal web (apps/cloud-web)
+  -> Autentica al usuario con el proveedor OIDC.
+  -> Consume apps/cloud-api con un Bearer token.
+  -> Reproduce video con el SDK de LiveKit.
+
+Cloud API (apps/cloud-api)
+  -> Valida JWT mediante JWKS del proveedor OIDC.
+  -> Persiste organizaciones, usuarios, instalaciones, camaras, eventos,
+     telefonos, comandos y auditoria en PostgreSQL.
+  -> Crea Ingress RTMP y tokens de espectadores en LiveKit.
+  -> Envia codigos y alertas con Meta WhatsApp Cloud API.
+
+Electron y backend local
+  -> Electron solicita un codigo de enrolamiento y cifra las credenciales del
+     dispositivo con Electron safeStorage.
+  -> El backend recibe CLOUD_API_URL, CLOUD_INSTALLATION_ID y
+     CLOUD_INSTALLATION_SECRET desde Electron.
+  -> El backend envia heartbeat, camaras y eventos, y consulta comandos.
+  -> START_LIVE inicia FFmpeg contra el stream local de IA y publica por RTMP
+     hacia LiveKit. El RTSP original nunca se entrega al cloud.
+
+
+3. ROLES
+--------
+
+- OWNER: control total de la organizacion, miembros, configuracion y video.
+- ADMIN: administracion operativa, enrolamiento y video.
+- OPERATOR: consulta operativa, eventos y video en vivo.
+- VIEWER: acceso de solo lectura a los recursos permitidos.
+
+La API resuelve la organizacion en cada solicitud y valida que la membresia
+este activa. No se confia en un rol enviado por el navegador.
+
+
+4. REQUISITOS EXTERNOS
+----------------------
+
+- Node.js 20 o superior.
+- PostgreSQL 16 recomendado.
+- Un proveedor OIDC con soporte de PKCE, por ejemplo Auth0, Clerk, Keycloak,
+  Microsoft Entra ID u otro compatible.
+- Un proyecto LiveKit Cloud o un servidor LiveKit con Ingress habilitado.
+- Una aplicacion Meta con WhatsApp Cloud API para verificacion y alertas.
+- FFmpeg disponible en la instalacion local o configurado mediante FFMPEG_PATH.
+
+
+5. DESARROLLO LOCAL
+-------------------
+
+Instalar dependencias:
+
+  npm install
+
+Iniciar PostgreSQL de desarrollo:
+
+  docker compose -f infrastructure/docker/docker-compose.cloud.dev.yml up -d
+
+Copiar apps/cloud-api/.env.example a apps/cloud-api/.env y ajustar DATABASE_URL
+al Compose de desarrollo:
+
+  postgresql://security_ai:security_ai_dev@localhost:5432/security_ai_cloud
+
+Iniciar API y portal en terminales separadas:
+
+  npm run dev:cloud
+  npm run dev:web
+
+La API escucha por defecto en http://localhost:3100/v1 y Vite sirve el portal
+origenes autorizados, separados por coma.
+
+
+6. VARIABLES DE LA CLOUD API
+----------------------------
+
+Archivo de referencia: apps/cloud-api/.env.example
+
+- NODE_ENV: development, test o production.
+- PORT: puerto HTTP, por defecto 3100.
+- CLOUD_WEB_ORIGIN: origenes CORS exactos separados por coma.
+- DATABASE_URL: conexion PostgreSQL con TLS segun el proveedor.
+- OIDC_ISSUER: issuer exacto esperado en los JWT.
+- OIDC_AUDIENCE: audience de la API.
+- OIDC_JWKS_URI: endpoint JWKS HTTPS del proveedor.
+- LIVEKIT_URL: URL WSS del proyecto LiveKit.
+- LIVEKIT_API_KEY: clave de servidor de LiveKit.
+- LIVEKIT_API_SECRET: secreto de servidor de LiveKit.
+- WHATSAPP_ENABLED: true para activar Meta WhatsApp.
+- WHATSAPP_ACCESS_TOKEN: token de sistema de Meta, solo en el servidor.
+- WHATSAPP_PHONE_NUMBER_ID: identificador del numero emisor.
+- WHATSAPP_API_VERSION: version de Graph API.
+- WHATSAPP_AUTH_TEMPLATE_NAME: plantilla para codigos de verificacion.
+- WHATSAPP_ALERT_TEMPLATE_NAME: plantilla para alertas de seguridad.
+- WHATSAPP_TEMPLATE_LANGUAGE: idioma aprobado de las plantillas.
+
+No colocar secretos cloud en variables VITE ni en el repositorio. En
+produccion deben provenir del secret manager del proveedor de hosting.
+
+
+7. VARIABLES DEL PORTAL WEB
+---------------------------
+
+Archivo de referencia: apps/cloud-web/.env.example
+
+- VITE_CLOUD_API_URL: URL publica de la API sin /v1 al final.
+- VITE_OIDC_AUTHORITY: authority publica del proveedor OIDC.
+- VITE_OIDC_CLIENT_ID: cliente publico SPA, sin client secret.
+- VITE_OIDC_REDIRECT_URI: callback registrado, terminado en /auth/callback.
+- VITE_OIDC_SCOPE: scopes OIDC solicitados.
+
+Registrar en OIDC tanto la URL de callback como la URL de cierre de sesion de
+cada entorno. El portal guarda el estado OIDC en sessionStorage.
+
+
+8. CONFIGURACION DE LIVEKIT
+---------------------------
+
+1. Crear un proyecto y obtener URL, API key y API secret.
+2. Habilitar el servicio Ingress RTMP.
+3. Configurar LIVEKIT_URL, LIVEKIT_API_KEY y LIVEKIT_API_SECRET en la API.
+4. Confirmar que la instalacion local puede salir por HTTPS/WSS y RTMPS.
+5. Confirmar que FFmpeg esta disponible para el backend local.
+
+Al solicitar una sesion, la API crea o reutiliza un Ingress para la camara,
+genera un comando START_LIVE para la instalacion y entrega al navegador un
+
+
+9. CONFIGURACION DE META WHATSAPP
+--------------------------------
+
+1. Crear y verificar la cuenta de WhatsApp Business en Meta.
+2. Crear las plantillas de autenticacion y alerta indicadas por las variables.
+3. Esperar la aprobacion de las plantillas antes de habilitar produccion.
+4. Crear un token de sistema de largo plazo con permisos minimos.
+5. Configurar el token y phone number ID solamente en la Cloud API.
+6. Cambiar WHATSAPP_ENABLED a true.
+
+Los numeros se normalizan y se confirma su posesion con un codigo temporal.
+Los tokens de Meta ya no se solicitan en la configuracion de Electron.
+
+
+10. ENROLAMIENTO DE UNA INSTALACION
+----------------------------------
+
+1. Iniciar sesion en el portal y crear o seleccionar una organizacion.
+2. En Electron abrir Configuracion y generar una solicitud de vinculacion.
+3. Copiar el codigo mostrado por Electron al formulario de enrolamiento web.
+4. Un OWNER o ADMIN aprueba la solicitud.
+5. Electron intercambia la solicitud aprobada por una identidad de dispositivo.
+6. Electron cifra installation ID, secret y URL con safeStorage.
+7. Reiniciar los servicios locales si la pantalla lo solicita.
+
+El secreto se muestra solo durante el intercambio y en la base central se
+almacena un hash. Si una instalacion se revoca debe repetirse el enrolamiento.
+
+
+11. DESPLIEGUE DE PRODUCCION
+----------------------------
+
+1. Provisionar PostgreSQL administrado con backups, TLS y acceso privado desde
+   la Cloud API.
+2. Configurar OIDC, LiveKit y Meta para el dominio de produccion.
+3. Desplegar apps/cloud-api con las variables de la seccion 6.
+4. Ejecutar la API con NODE_ENV=production. TypeORM aplica las migraciones
+   versionadas al iniciar; no usa synchronize fuera de pruebas.
+5. Compilar apps/cloud-web con sus variables publicas y publicar el contenido
+   estatico detras de HTTPS.
+6. Configurar CLOUD_WEB_ORIGIN con el dominio HTTPS exacto del portal.
+7. Aplicar health checks, logs centralizados, alertas y rotacion de secretos.
+8. Enrolar cada instalacion desde Electron.
+
+Comandos de compilacion:
+
+  npm run build:shared
+  npm run build:backend
+  npm run build:desktop
+  npm run build:cloud
+  npm run build:web
+
+
+12. SEGURIDAD APLICADA
+----------------------
+
+- JWT verificados contra JWKS, issuer y audience configurados.
+- PKCE y sessionStorage en la SPA.
+- Autorizacion tenant-aware por organizacion y rol.
+- Credenciales de dispositivos aleatorias y almacenadas como hash en cloud.
+- Secretos locales cifrados con Electron safeStorage.
+- Helmet, validacion estricta de DTO, CORS por allowlist y rate limiting.
+- Codigos de enrolamiento y telefono con expiracion y hashes.
+- Eventos idempotentes y auditoria de acciones sensibles.
+- La API nunca recibe URL, usuario ni clave RTSP.
+- La publicacion remota solo acepta RTMP o RTMPS entregado por el control plane.
+
+Antes de produccion se recomienda agregar WAF/rate limiting perimetral, alertas
+de abuso, rotacion automatica de claves, pruebas de penetracion y una politica
+
+
+13. PRUEBAS Y VERIFICACION
+--------------------------
+
+Pruebas ejecutadas para esta entrega:
+
+- npm run build:desktop
+- npm run build:backend
+- npm run build:cloud
+- npm run build:web
+- npm run test --workspace=apps/cloud-api
+- apps/ai/.venv/Scripts/python.exe -m unittest discover -s tests -p
+  "test_threat_pipeline.py"
+- git diff --check
+
+La suite cloud contiene 8 pruebas para permisos, politicas de proveedor,
+criptografia telefonica y criptografia de enrolamiento. La suite de IA contiene
+30 pruebas del pipeline de amenazas.
+
+
+14. LIMITACIONES CONOCIDAS
+--------------------------
+
+- El agente Windows persistente todavia no esta implementado. Actualmente el
+  backend y el proceso de IA dependen de que Electron permanezca abierto. Por
+  lo tanto el acceso remoto no funciona despues de cerrar Electron o apagar la
+  instalacion.
+- No se probaron proveedores reales end-to-end en esta maquina porque no hay
+  credenciales desplegadas de OIDC, PostgreSQL, LiveKit ni Meta.
+- Docker Desktop no estaba iniciado durante la validacion final, por lo que la
+  migracion se valido por compilacion pero no contra PostgreSQL local.
+- Las evidencias de video permanecen locales; el portal cloud solo recibe los
+  metadatos de eventos definidos por el MVP.
+- La sesion LiveKit publica video sin audio y depende de FFmpeg y del endpoint
+  local de streaming de IA.
+- npm audit mantiene vulnerabilidades transitivas cuya correccion automatica
+  requiere upgrades mayores de NestJS, Electron, Vite, React Router y tooling.
+  No se uso npm audit fix --force para evitar regresiones no revisadas.
+
+
+15. PROXIMOS PASOS RECOMENDADOS
+-------------------------------
+
+1. Implementar un servicio Windows persistente con recuperacion automatica,
+   actualizaciones firmadas y un canal IPC autenticado hacia Electron.
+2. Crear pruebas de integracion con PostgreSQL real y migraciones up/down.
+3. Crear un entorno staging real para OIDC, LiveKit y Meta.
+4. Agregar expiracion y comando STOP_LIVE para detener publicaciones sin uso.
+5. Medir ancho de banda, reconexion y latencia con multiples espectadores.
+6. Planificar y probar upgrades mayores para resolver npm audit.
+7. Agregar observabilidad de outbox, comandos, Ingress y entregas de WhatsApp.
+
+
+16. ARCHIVOS PRINCIPALES
+------------------------
+
+- apps/cloud-api: API, entidades, migracion, LiveKit y WhatsApp.
+- apps/cloud-web: portal OIDC y reproductor LiveKit.
+- apps/backend/src/cloud: sincronizacion local y outbox durable.
+- apps/desktop/electron/cloud-enrollment.ts: enrolamiento y safeStorage.
+- apps/desktop/src/pages/Settings.tsx: interfaz de vinculacion.
+- packages/shared/src/types/cloud.ts: contratos compartidos.
+- infrastructure/docker/docker-compose.cloud.dev.yml: PostgreSQL de desarrollo.
+
+Documento creado para la entrega de acceso remoto cloud en la rama staging.

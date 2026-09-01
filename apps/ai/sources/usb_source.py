@@ -1,8 +1,12 @@
 import sys
+import threading
 import cv2
 from typing import Optional
 import numpy as np
 from .base import VideoSource
+
+
+_capture_open_lock = threading.Lock()
 
 
 class UsbVideoSource(VideoSource):
@@ -15,18 +19,22 @@ class UsbVideoSource(VideoSource):
         self._cap: Optional[cv2.VideoCapture] = None
 
     def _connect(self):
-        if sys.platform == 'win32':
-            self._cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
-        else:
-            self._cap = cv2.VideoCapture(self.device_index)
+        # Some Windows camera drivers crash when DirectShow devices are opened concurrently.
+        with _capture_open_lock:
+            if sys.platform == 'win32':
+                self._cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
+            else:
+                self._cap = cv2.VideoCapture(self.device_index)
 
-        if not self._cap.isOpened():
-            raise RuntimeError(f"Cannot open USB camera index {self.device_index}")
+            if not self._cap.isOpened():
+                self._cap.release()
+                self._cap = None
+                raise RuntimeError(f"Cannot open USB camera index {self.device_index}")
 
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         print(f"[{self.source_id}] Connected to USB camera {self.device_index}")
 
     def _read_frame(self) -> Optional[np.ndarray]:

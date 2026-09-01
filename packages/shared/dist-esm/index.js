@@ -5,5 +5,6 @@ export * from './types/zone';
 export * from './types/rule';
 export * from './types/system';
 export * from './types/websocket';
+export * from './types/cloud';
 export * from './constants';
 //# sourceMappingURL=index.js.map

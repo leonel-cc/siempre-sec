@@ -622,9 +622,6 @@ class FrameProcessor:
                 return None
         if view == 'annotated':
             with self._frame_lock:
-                annotated = self._latest_annotated_frames.get(source_id)
-                if annotated is not None and not show_people:
-                    return annotated.copy()
                 result = self._latest_results.get(source_id, self._empty_result())
             return self._annotate_frame(
                 frame, result['detections'], show_people=show_people)
