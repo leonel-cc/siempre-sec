@@ -16,6 +16,8 @@ declare global {
       exchange: () => Promise<CloudEnrollmentStatus>;
       clear: () => Promise<CloudEnrollmentStatus>;
     };
+    getDesktopPreferences: () => Promise<DesktopPreferences>;
+    setDesktopPreferences: (updates: Partial<DesktopPreferences>) => Promise<DesktopPreferences>;
   }
 
   interface CloudEnrollmentStatus {
@@ -24,6 +26,12 @@ declare global {
     installationId?: string;
     userCode?: string;
     expiresAt?: string;
+  }
+
+  interface DesktopPreferences {
+    startWithWindows: boolean;
+    keepRunningInBackground: boolean;
+    preventSleep: boolean;
   }
 
   interface Window {

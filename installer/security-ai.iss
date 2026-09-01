@@ -36,5 +36,8 @@ Source: "..\apps\desktop\release\win-unpacked\*"; DestDir: "{app}"; Flags: ignor
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Security AI"; ValueData: """{app}\{#AppExeName}"" --background"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exchange: () => ipcRenderer.invoke('cloud-enrollment-exchange'),
     clear: () => ipcRenderer.invoke('cloud-enrollment-clear'),
   },
+  getDesktopPreferences: () => ipcRenderer.invoke('desktop-preferences:get'),
+  setDesktopPreferences: (updates: Record<string, boolean>) =>
+    ipcRenderer.invoke('desktop-preferences:set', updates),
 });

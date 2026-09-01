@@ -1,4 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  powerMonitor,
+  powerSaveBlocker,
+  Tray,
+} from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
@@ -17,10 +27,143 @@ let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let aiProcess: ChildProcess | null = null;
 let mediamtxProcess: ChildProcess | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+let powerSaveBlockerId: number | null = null;
+let backendRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let aiRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let mediamtxRestartTimer: ReturnType<typeof setTimeout> | null = null;
 
 const BACKEND_PORT = 3000;
 const AI_PORT = 5000;
 const MEDIAMTX_PORT = 8554;
+
+interface DesktopPreferences {
+  startWithWindows: boolean;
+  keepRunningInBackground: boolean;
+  preventSleep: boolean;
+}
+
+const defaultDesktopPreferences: DesktopPreferences = {
+  startWithWindows: true,
+  keepRunningInBackground: true,
+  preventSleep: true,
+};
+
+let desktopPreferences = { ...defaultDesktopPreferences };
+
+function getPreferencesPath(): string {
+  return path.join(app.getPath('userData'), 'desktop-preferences.json');
+}
+
+function loadDesktopPreferences(): DesktopPreferences {
+  try {
+    const saved = JSON.parse(fs.readFileSync(getPreferencesPath(), 'utf8'));
+    return { ...defaultDesktopPreferences, ...saved };
+  } catch {
+    return { ...defaultDesktopPreferences };
+  }
+}
+
+function saveDesktopPreferences(): void {
+  fs.writeFileSync(getPreferencesPath(), JSON.stringify(desktopPreferences, null, 2));
+}
+
+function applyLoginItemSetting(): void {
+  if (process.platform !== 'win32' || isDev) return;
+  app.setLoginItemSettings({
+    openAtLogin: desktopPreferences.startWithWindows,
+    path: process.execPath,
+    args: ['--background'],
+    name: 'Security AI',
+  });
+}
+
+function applyPowerSetting(): void {
+  if (desktopPreferences.preventSleep && powerSaveBlockerId === null) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  } else if (!desktopPreferences.preventSleep && powerSaveBlockerId !== null) {
+    if (powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+      powerSaveBlocker.stop(powerSaveBlockerId);
+    }
+    powerSaveBlockerId = null;
+  }
+}
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow(true);
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir Security AI', click: showMainWindow },
+    { type: 'separator' },
+    {
+      label: 'Iniciar con Windows',
+      type: 'checkbox',
+      checked: desktopPreferences.startWithWindows,
+      click: (item) => {
+        desktopPreferences.startWithWindows = item.checked;
+        saveDesktopPreferences();
+        applyLoginItemSetting();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Salir completamente',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+}
+
+function createTray(): void {
+  if (tray) return;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2563eb"/><path d="M16 5 26 9v7c0 6.3-4.2 10-10 12-5.8-2-10-5.7-10-12V9l10-4Z" fill="#fff"/><circle cx="16" cy="15" r="4" fill="#2563eb"/><path d="M10 23c1.4-3 3.4-4 6-4s4.6 1 6 4" fill="#2563eb"/></svg>';
+  tray = new Tray(nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`));
+  tray.setToolTip('Security AI - monitoreo activo');
+  tray.on('double-click', showMainWindow);
+  rebuildTrayMenu();
+}
+
+function ensureServicesRunning(): void {
+  if (!backendProcess) void startBackend().catch(error => console.error('Backend start error:', error));
+  if (!aiProcess) void startAiService().catch(error => console.error('AI start error:', error));
+  if (!mediamtxProcess) void startMediaMTX().catch(error => console.error('MediaMTX start error:', error));
+}
+
+function scheduleBackendRestart(): void {
+  if (isQuitting || backendRestartTimer) return;
+  backendRestartTimer = setTimeout(() => {
+    backendRestartTimer = null;
+    if (!isQuitting) void startBackend().catch(error => console.error('Backend restart error:', error));
+  }, 5000);
+}
+
+function scheduleAiRestart(): void {
+  if (isQuitting || aiRestartTimer) return;
+  aiRestartTimer = setTimeout(() => {
+    aiRestartTimer = null;
+    if (!isQuitting) void startAiService().catch(error => console.error('AI restart error:', error));
+  }, 5000);
+}
+
+function scheduleMediaMTXRestart(): void {
+  if (isQuitting || mediamtxRestartTimer) return;
+  mediamtxRestartTimer = setTimeout(() => {
+    mediamtxRestartTimer = null;
+    if (!isQuitting) void startMediaMTX().catch(error => console.error('MediaMTX restart error:', error));
+  }, 5000);
+}
 
 function getBackendDir(): string {
   if (isDev) {
@@ -138,9 +281,20 @@ async function startBackend(): Promise<void> {
     console.error(`[Backend] ${data.toString().trim()}`);
   });
 
+  child.on('error', (error) => {
+    console.error('Backend process error:', error);
+    if (backendProcess === child) {
+      backendProcess = null;
+      scheduleBackendRestart();
+    }
+  });
+
   child.on('exit', (code) => {
     console.log(`Backend exited with code ${code}`);
-    if (backendProcess === child) backendProcess = null;
+    if (backendProcess === child) {
+      backendProcess = null;
+      scheduleBackendRestart();
+    }
   });
 }
 
@@ -209,9 +363,16 @@ async function startAiService(): Promise<void> {
     console.error(`[AI] ${data.toString().trim()}`);
   });
 
+  aiProcess.on('error', (error) => {
+    console.error('AI process error:', error);
+    aiProcess = null;
+    scheduleAiRestart();
+  });
+
   aiProcess.on('exit', (code) => {
     console.log(`AI Service exited with code ${code}`);
     aiProcess = null;
+    scheduleAiRestart();
   });
 }
 
@@ -251,9 +412,16 @@ async function startMediaMTX(): Promise<void> {
     console.error(`[MediaMTX] ${data.toString().trim()}`);
   });
 
+  mediamtxProcess.on('error', (error) => {
+    console.error('MediaMTX process error:', error);
+    mediamtxProcess = null;
+    scheduleMediaMTXRestart();
+  });
+
   mediamtxProcess.on('exit', (code) => {
     console.log(`MediaMTX exited with code ${code}`);
     mediamtxProcess = null;
+    scheduleMediaMTXRestart();
   });
 }
 
@@ -285,14 +453,12 @@ if (!gotTheLock) {
 }
 
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
+  showMainWindow();
 });
 
-function createWindow() {
+function createWindow(showOnReady = true) {
   mainWindow = new BrowserWindow({
+    show: false,
     width: 1400,
     height: 900,
     minWidth: 1024,
@@ -313,6 +479,15 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  if (showOnReady) mainWindow.once('ready-to-show', () => mainWindow?.show());
+
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && desktopPreferences.keepRunningInBackground) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -320,6 +495,10 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   if (!gotTheLock) return;
+  desktopPreferences = loadDesktopPreferences();
+  applyLoginItemSetting();
+  applyPowerSetting();
+  createTray();
   console.log('Security AI starting...');
   console.log(`Mode: ${isDev ? 'development' : 'production'}`);
 
@@ -353,11 +532,32 @@ app.whenReady().then(async () => {
     return status;
   });
 
-  createWindow();
+  ipcMain.handle('desktop-preferences:get', () => ({ ...desktopPreferences }));
+  ipcMain.handle('desktop-preferences:set', (_event, updates: Partial<DesktopPreferences>) => {
+    desktopPreferences = { ...desktopPreferences, ...updates };
+    saveDesktopPreferences();
+    applyLoginItemSetting();
+    applyPowerSetting();
+    rebuildTrayMenu();
+    return { ...desktopPreferences };
+  });
 
-  startBackend().catch(e => console.error('Backend start error:', e));
-  startAiService().catch(e => console.error('AI start error:', e));
-  startMediaMTX().catch(e => console.error('MediaMTX start error:', e));
+  ipcMain.on('window-minimize', () => mainWindow?.minimize());
+  ipcMain.on('window-maximize', () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+    else mainWindow?.maximize();
+  });
+  ipcMain.on('window-close', () => mainWindow?.close());
+
+  const startInBackground = !isDev && process.argv.includes('--background');
+  if (!startInBackground) createWindow(true);
+
+  ensureServicesRunning();
+
+  powerMonitor.on('resume', () => {
+    console.log('Windows resumed; checking Security AI services');
+    ensureServicesRunning();
+  });
 
   const backendReady = await waitForService(BACKEND_PORT, 15000);
   console.log(`Backend: ${backendReady ? 'READY' : 'TIMEOUT'}`);
@@ -424,18 +624,19 @@ function killProcesses() {
 }
 
 app.on('window-all-closed', () => {
-  killProcesses();
-  if (process.platform !== 'darwin') {
+  if (!desktopPreferences.keepRunningInBackground && process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+  showMainWindow();
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
+  if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
+    powerSaveBlocker.stop(powerSaveBlockerId);
+  }
   killProcesses();
 });
