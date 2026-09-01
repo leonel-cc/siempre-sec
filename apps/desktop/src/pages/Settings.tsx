@@ -6,9 +6,13 @@ export default function Settings() {
   const [config, setConfig] = useState<Record<string, Record<string, any>> | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences | null>(null);
 
   useEffect(() => {
     api.settings.getAll().then(setConfig).catch(console.error);
+    window.electronAPI?.getDesktopPreferences()
+      .then(setDesktopPreferences)
+      .catch(console.error);
   }, []);
 
   function updateSection(section: string, key: string, value: any) {
@@ -20,6 +24,22 @@ export default function Settings() {
       };
     });
     setSaved(false);
+  }
+
+  async function updateDesktopPreference(
+    key: keyof DesktopPreferences,
+    value: boolean,
+  ) {
+    if (!window.electronAPI) return;
+    setDesktopPreferences(prev => prev ? { ...prev, [key]: value } : prev);
+    try {
+      const updated = await window.electronAPI.setDesktopPreferences({ [key]: value });
+      setDesktopPreferences(updated);
+    } catch (error) {
+      console.error('Failed to save desktop preference:', error);
+      const current = await window.electronAPI.getDesktopPreferences();
+      setDesktopPreferences(current);
+    }
   }
 
   async function handleSave() {
@@ -93,6 +113,24 @@ export default function Settings() {
           <SettingInput label="Video post-evento (s)" value={config.alerts.post_event_seconds} type="number"
             onChange={v => updateSection('alerts', 'post_event_seconds', parseInt(v) || 15)} />
         </SettingsSection>
+
+        {desktopPreferences && (
+          <SettingsSection title="Aplicación de escritorio">
+            <SettingToggle label="Iniciar automáticamente con Windows"
+              checked={desktopPreferences.startWithWindows}
+              onChange={v => updateDesktopPreference('startWithWindows', v)} />
+            <SettingToggle label="Continuar monitoreando al cerrar la ventana"
+              checked={desktopPreferences.keepRunningInBackground}
+              onChange={v => updateDesktopPreference('keepRunningInBackground', v)} />
+            <SettingToggle label="Evitar que la PC se suspenda durante el monitoreo"
+              checked={desktopPreferences.preventSleep}
+              onChange={v => updateDesktopPreference('preventSleep', v)} />
+            <p className="text-xs text-gray-500">
+              La pantalla puede apagarse. Para detener todos los servicios usa
+              &quot;Salir completamente&quot; desde el icono de la bandeja.
+            </p>
+          </SettingsSection>
+        )}
 
         <SettingsSection title="💾 Almacenamiento">
           <SettingInput label="Máximo en disco (GB)" value={config.storage.max_storage_gb} type="number"

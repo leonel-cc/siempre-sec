@@ -16,10 +16,13 @@ C:\Program Files\Security AI\
     └── bin\                     # ffmpeg + ffprobe portables
 ```
 
-Al abrir la app, el supervisor lanza backend (:3000), IA (:5000) y MediaMTX
-(:8554) como procesos hijos y los mata al cerrar. Los datos del usuario viven
-en `%APPDATA%\Security AI\` (BD SQLite y evidencias), así que la carpeta de
-instalación queda limpia.
+Al iniciar sesión en Windows, Security AI arranca minimizada en la bandeja y el
+supervisor lanza backend (:3000), IA (:5000) y MediaMTX (:8554). Cerrar la
+ventana mantiene el monitoreo activo; `Salir completamente` desde la bandeja
+detiene todos los procesos. Mientras el monitoreo está activo, la pantalla puede
+apagarse pero la aplicación evita que Windows suspenda el equipo. Los datos del
+usuario viven en `%APPDATA%\Security AI\` (BD SQLite, preferencias y evidencias),
+así que la carpeta de instalación queda limpia.
 
 ## Prerrequisitos de la máquina de build
 
@@ -67,6 +70,9 @@ Output final: `apps\desktop\release\Security AI Setup 0.1.0.exe`
   `build.win.icon` (mínimo 256x256 .ico) cuando exista branding.
 - Si el cliente ya tiene algo escuchando en 3000/5000/8554/1935/8888, esos
   servicios no arrancan (el supervisor detecta puertos ocupados).
+- El inicio automático ocurre después de iniciar sesión en Windows. Para operar
+  antes del inicio de sesión sería necesario instalar el supervisor como un
+  servicio de Windows.
 - Inno Setup se usa en lugar de NSIS porque el runtime CUDA supera el límite
   de memoria de `makensis.exe` de 32 bits. El resultado sigue siendo un único
   instalador offline.
