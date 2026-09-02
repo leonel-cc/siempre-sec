@@ -1,7 +1,6 @@
-import { app, safeStorage } from 'electron';
+import { app } from 'electron';
 import { generateKeyPairSync } from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { readEncrypted, removeSecureFile, writeEncrypted } from './secure-storage';
 
 interface PendingEnrollment {
   cloudUrl: string;
@@ -24,34 +23,6 @@ export interface CloudEnrollmentStatus {
   installationId?: string;
   userCode?: string;
   expiresAt?: string;
-}
-
-function secureFile(name: string): string {
-  const dir = path.join(app.getPath('userData'), 'secure');
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, name);
-}
-
-function writeEncrypted(name: string, value: unknown) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Windows secure storage is unavailable');
-  }
-  const encrypted = safeStorage.encryptString(JSON.stringify(value));
-  fs.writeFileSync(secureFile(name), encrypted, { mode: 0o600 });
-}
-
-function readEncrypted<T>(name: string): T | null {
-  const file = secureFile(name);
-  if (!fs.existsSync(file) || !safeStorage.isEncryptionAvailable()) return null;
-  try {
-    return JSON.parse(safeStorage.decryptString(fs.readFileSync(file))) as T;
-  } catch {
-    return null;
-  }
-}
-
-function removeSecureFile(name: string) {
-  fs.rmSync(secureFile(name), { force: true });
 }
 
 function normalizeCloudUrl(value: string): string {
@@ -170,6 +141,32 @@ export function getCloudChildEnvironment(): Record<string, string> {
     CLOUD_INSTALLATION_ID: credentials.installationId,
     CLOUD_INSTALLATION_SECRET: credentials.secret,
   };
+}
+
+export async function deviceRequest<T>(
+  pathname: string,
+  init: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown } = {},
+): Promise<T> {
+  if (!pathname.startsWith('/v1/installations/me/') || pathname.includes('://')
+    || pathname.includes('..') || pathname.includes('\\') || pathname.includes('#')) {
+    throw new Error('Invalid device API path');
+  }
+  const credentials = readEncrypted<CloudCredentials>('cloud-credentials.bin');
+  if (!credentials) throw new Error('Cloud installation is not enrolled');
+  const response = await fetch(`${credentials.cloudUrl}${pathname}`, {
+    method: init.method ?? 'GET',
+    headers: {
+      Authorization: `Device ${credentials.installationId}.${credentials.secret}`,
+      ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error((await response.text()) || `Cloud API returned ${response.status}`);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
 }
 
 export async function clearCloudEnrollment(): Promise<CloudEnrollmentStatus> {

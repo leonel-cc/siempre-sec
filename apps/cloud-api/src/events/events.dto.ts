@@ -1,4 +1,25 @@
-import { IsDateString, IsObject, IsOptional, IsString, IsUUID, Length, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsDateString,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+
+export class EventRecipientDto {
+  @IsUUID()
+  recipientId: string;
+
+  @Matches(/^\+[1-9]\d{7,14}$/, { message: 'phone must be a valid E.164 number' })
+  phone: string;
+}
 
 export class IngestEventDto {
   @IsString()
@@ -19,6 +40,13 @@ export class IngestEventDto {
 
   @IsObject()
   metadata: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => EventRecipientDto)
+  recipients?: EventRecipientDto[];
 }
 
 export class EventListQueryDto {

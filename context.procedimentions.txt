@@ -214,6 +214,13 @@ InstallationRepository no disponible en EventsModule:
   InstallationAuthGuard dejo de instanciarse directamente en cada modulo.
   Ahora es un APP_GUARD global y se activa solo en handlers con @DeviceAuth().
 
+InstallationRepository no disponible en NotificationsModule:
+  Los endpoints de destinatarios agregados en paralelo tambien usan
+  @DeviceAuth(), evitando volver a instanciar InstallationAuthGuard localmente.
+
+DataTypeNotSupportedError para NotificationDelivery.phoneMask:
+  La columna nullable agregada en paralelo ahora declara type: 'varchar'.
+
 column excluded.emailVerified does not exist:
   El upsert de usuarios usaba nombres de propiedades TypeScript en orUpdate.
   Ahora usa los nombres SQL email_verified y display_name.
@@ -245,6 +252,12 @@ PowerShell -SkipHttpErrorCheck:
 
 En desarrollo WHATSAPP_ENABLED=false, por lo que no se llama a Meta.
 
+Cada instalacion administra hasta 100 destinatarios. El numero completo se
+conserva cifrado en Electron; cloud guarda nombre, mascara y huella HMAC. La
+migracion InstallationPhoneRecipients1788294400000 ya fue aplicada al
+PostgreSQL local. La vista de instalaciones permite agrupar y administrar los
+contactos desde el portal.
+
 Cuando la instalacion esta enrolada, el cloud es el propietario de las alertas
 para evitar duplicados. Si Meta falla, la API devuelve error temporal y la
 outbox local vuelve a intentar. Si cloud no esta configurado, se conserva el
@@ -257,6 +270,7 @@ Para produccion hacen falta:
 - WHATSAPP_AUTH_TEMPLATE_NAME
 - WHATSAPP_ALERT_TEMPLATE_NAME
 - WHATSAPP_TEMPLATE_LANGUAGE
+- PHONE_FINGERPRINT_SECRET con al menos 32 caracteres aleatorios
 - WHATSAPP_ENABLED=true
 
 
@@ -302,6 +316,7 @@ Antes de desplegar en la web:
   npm run build:desktop
   npm run build:cloud
   npm run build:web
+  npm run test --workspace=apps/backend -- --runInBand
   npm run test --workspace=apps/cloud-api
   apps/ai/.venv/Scripts/python.exe -m unittest discover -s tests -p "test_threat_pipeline.py"
   git diff --check
@@ -364,7 +379,7 @@ error de compilacion.
 
 1. Agregar pruebas de integracion PostgreSQL para migraciones y guards.
 2. Automatizar un smoke test API que cree y liste una organizacion.
-3. Agregar una vista de instalaciones y revocacion al portal.
+3. Agregar pruebas end-to-end para destinatarios WhatsApp por instalacion.
 4. Implementar STOP_LIVE explicito ademas del TTL.
 5. Agregar observabilidad de outbox, comandos, Ingress y WhatsApp.
 6. Dividir el bundle del portal con carga diferida de LiveKit.

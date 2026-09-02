@@ -21,12 +21,6 @@ const DEFAULTS: Record<string, Record<string, any>> = {
     max_storage_gb: 50,
     retention_days: 30,
   },
-  whatsapp: {
-    enabled: false,
-    api_token: '',
-    phone_number_id: '',
-    recipient_number: '',
-  },
   cameras: {
     reconnect_interval_ms: 5000,
     max_reconnect_attempts: 10,

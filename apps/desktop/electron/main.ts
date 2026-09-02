@@ -8,6 +8,7 @@ import {
   powerMonitor,
   powerSaveBlocker,
   Tray,
+  WebContents,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -20,6 +21,15 @@ import {
   getCloudEnrollmentStatus,
   requestCloudEnrollment,
 } from './cloud-enrollment';
+import {
+  clearPhoneRecipients,
+  confirmPhoneVerification,
+  deletePhoneRecipient,
+  getPhoneRecipientsForDispatch,
+  listPhoneRecipients,
+  requestPhoneVerification,
+  setPhoneRecipientEnabled,
+} from './phone-recipients';
 
 const isDev = !app.isPackaged;
 
@@ -37,6 +47,7 @@ let mediamtxRestartTimer: ReturnType<typeof setTimeout> | null = null;
 const BACKEND_PORT = 3000;
 const AI_PORT = 5000;
 const MEDIAMTX_PORT = 8554;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface DesktopPreferences {
   startWithWindows: boolean;
@@ -267,15 +278,18 @@ async function startBackend(): Promise<void> {
       BACKEND_PORT: String(BACKEND_PORT),
       AI_SERVICE_HOST: '127.0.0.1',
       AI_SERVICE_PORT: String(AI_PORT),
+      PHONE_RECIPIENTS_IPC_REQUIRED: '1',
       ...getCloudChildEnvironment(),
     }),
-    stdio: 'pipe',
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
   backendProcess = child;
 
   child.stdout?.on('data', (data) => {
     console.log(`[Backend] ${data.toString().trim()}`);
   });
+
+  child.on('message', message => handleBackendProtocolMessage(child, message));
 
   child.stderr?.on('data', (data) => {
     console.error(`[Backend] ${data.toString().trim()}`);
@@ -296,6 +310,24 @@ async function startBackend(): Promise<void> {
       scheduleBackendRestart();
     }
   });
+}
+
+function handleBackendProtocolMessage(child: ChildProcess, message: unknown): void {
+  if (!message || typeof message !== 'object' || Array.isArray(message)) return;
+  const record = message as Record<string, unknown>;
+  if (record.type !== 'phone-recipients:get') return;
+  if (Object.keys(record).some(key => key !== 'type' && key !== 'requestId')) return;
+  if (typeof record.requestId !== 'string' || record.requestId.length < 1 || record.requestId.length > 128) return;
+  if (!/^[A-Za-z0-9._:-]+$/.test(record.requestId) || !child.connected) return;
+  try {
+    child.send({
+      type: 'phone-recipients:result',
+      requestId: record.requestId,
+      recipients: getPhoneRecipientsForDispatch(),
+    }, () => undefined);
+  } catch {
+    // The backend can disconnect between the connected check and send.
+  }
 }
 
 function resolvePython(aiDir: string): string {
@@ -528,8 +560,41 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle('cloud-enrollment-clear', async () => {
     const status = await clearCloudEnrollment();
+    await clearPhoneRecipients();
     await restartBackend();
     return status;
+  });
+
+  ipcMain.handle('phone-recipients:list', event => {
+    assertTrustedRenderer(event.sender);
+    return listPhoneRecipients();
+  });
+  ipcMain.handle('phone-recipients:request', (event, contactName: unknown, phone: unknown) => {
+    assertTrustedRenderer(event.sender);
+    if (typeof contactName !== 'string' || contactName.length > 100 ||
+        typeof phone !== 'string' || phone.length > 40) {
+      throw new Error('Invalid contact');
+    }
+    return requestPhoneVerification(contactName, phone);
+  });
+  ipcMain.handle('phone-recipients:confirm', (event, challengeId: unknown, code: unknown) => {
+    assertTrustedRenderer(event.sender);
+    if (typeof challengeId !== 'string' || !UUID.test(challengeId) || typeof code !== 'string') {
+      throw new Error('Invalid verification');
+    }
+    return confirmPhoneVerification(challengeId, code);
+  });
+  ipcMain.handle('phone-recipients:set-enabled', (event, recipientId: unknown, enabled: unknown) => {
+    assertTrustedRenderer(event.sender);
+    if (typeof recipientId !== 'string' || !UUID.test(recipientId) || typeof enabled !== 'boolean') {
+      throw new Error('Invalid recipient update');
+    }
+    return setPhoneRecipientEnabled(recipientId, enabled);
+  });
+  ipcMain.handle('phone-recipients:delete', (event, recipientId: unknown) => {
+    assertTrustedRenderer(event.sender);
+    if (typeof recipientId !== 'string' || !UUID.test(recipientId)) throw new Error('Invalid recipient');
+    return deletePhoneRecipient(recipientId);
   });
 
   ipcMain.handle('desktop-preferences:get', () => ({ ...desktopPreferences }));
@@ -568,6 +633,10 @@ app.whenReady().then(async () => {
   const mediaReady = await waitForService(MEDIAMTX_PORT, 10000);
   console.log(`MediaMTX: ${mediaReady ? 'READY' : 'TIMEOUT'}`);
 });
+
+function assertTrustedRenderer(sender: WebContents): void {
+  if (!mainWindow || sender !== mainWindow.webContents) throw new Error('Untrusted IPC sender');
+}
 
 function killProcess(proc: ChildProcess | null, name: string): ChildProcess | null {
   if (!proc) return null;

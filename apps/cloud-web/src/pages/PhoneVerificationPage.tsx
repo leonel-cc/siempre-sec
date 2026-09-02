@@ -1,107 +1,192 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { EmptyOrganization, PageHeader } from '../components/AppShell';
 import { canAdminister, useOrganizations } from '../organizations/OrganizationProvider';
-import { PhoneChallenge } from '../types';
+import { PhoneRecipient } from '../types';
+
+type Message = { kind: 'success' | 'error'; text: string };
+
+function messageFrom(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function statusDetails(recipient: PhoneRecipient): { className: string; label: string } {
+  if (recipient.requiresReverification) {
+    return { className: 'pending', label: 'Requiere reverificación local' };
+  }
+  return recipient.enabled
+    ? { className: 'active', label: 'Activo' }
+    : { className: 'disabled', label: 'Desactivado' };
+}
 
 export function PhoneVerificationPage() {
   const { selected } = useOrganizations();
-  const [phone, setPhone] = useState('');
-  const [code, setCode] = useState('');
-  const [challenge, setChallenge] = useState<PhoneChallenge | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [recipients, setRecipients] = useState<PhoneRecipient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [changingId, setChangingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
+  const [reload, setReload] = useState(0);
+  const allowed = canAdminister(selected?.role);
+  const installationFilter = searchParams.get('installationId');
 
   useEffect(() => {
-    setChallenge(null);
-    setCode('');
+    setRecipients([]);
+    setLoadError(null);
     setMessage(null);
-  }, [selected?.organizationId]);
+    setLoading(false);
+    if (!selected || !allowed) return;
 
-  if (!selected) return <><PageHeader eyebrow="Canal de alertas" title="Verificar teléfono" description="Confirme el número que recibirá notificaciones críticas." /><EmptyOrganization /></>;
-  const allowed = canAdminister(selected.role);
+    let active = true;
+    setLoading(true);
+    api.get<PhoneRecipient[]>(`/v1/organizations/${selected.organizationId}/whatsapp-recipients`)
+      .then((result) => { if (active) setRecipients(result); })
+      .catch((error: unknown) => {
+        if (active) setLoadError(messageFrom(error, 'No se pudieron cargar los contactos de WhatsApp.'));
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selected?.organizationId, allowed, reload]);
 
-  const requestCode = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!allowed) return;
-    setBusy(true);
+  const setRecipientEnabled = async (recipient: PhoneRecipient) => {
+    if (!selected || !allowed) return;
+    setChangingId(recipient.id);
     setMessage(null);
     try {
-      const response = await api.post<PhoneChallenge>('/v1/phone-verification/request', {
-        organizationId: selected.organizationId,
-        phone: phone.trim(),
+      const action = recipient.enabled ? 'deactivate' : 'activate';
+      const updated = await api.post<PhoneRecipient>(
+        `/v1/organizations/${selected.organizationId}/whatsapp-recipients/${recipient.id}/${action}`,
+      );
+      setRecipients((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      setMessage({
+        kind: 'success',
+        text: updated.enabled ? 'Contacto activado para recibir alertas.' : 'Contacto desactivado.',
       });
-      setChallenge(response);
-      setMessage({ kind: 'success', text: 'Código solicitado. Revise el teléfono indicado.' });
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo solicitar el código.' });
+      setMessage({ kind: 'error', text: messageFrom(error, 'No se pudo cambiar el estado del contacto.') });
     } finally {
-      setBusy(false);
+      setChangingId(null);
     }
   };
 
-  const confirmCode = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!challenge || !allowed) return;
-    setBusy(true);
+  const removeRecipient = async (recipient: PhoneRecipient) => {
+    if (!selected || !allowed || !window.confirm(`¿Eliminar a ${recipient.contactName} (${recipient.phoneMask})? Esta acción no se puede deshacer.`)) return;
+
+    setChangingId(recipient.id);
     setMessage(null);
     try {
-      await api.post<{ verified: true; recipientId: string }>('/v1/phone-verification/confirm', {
-        organizationId: selected.organizationId,
-        challengeId: challenge.challengeId,
-        code,
-      });
-      setChallenge(null);
-      setCode('');
-      setMessage({ kind: 'success', text: 'Teléfono verificado. Las alertas críticas usarán este destino.' });
+      await api.delete(
+        `/v1/organizations/${selected.organizationId}/whatsapp-recipients/${recipient.id}`,
+      );
+      setRecipients((current) => current.filter((item) => item.id !== recipient.id));
+      setMessage({ kind: 'success', text: 'Contacto de alerta eliminado.' });
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo verificar el código.' });
+      setMessage({ kind: 'error', text: messageFrom(error, 'No se pudo eliminar el contacto.') });
     } finally {
-      setBusy(false);
+      setChangingId(null);
     }
   };
+
+  if (!selected) return <><PageHeader eyebrow="Canal de alertas" title="Contactos WhatsApp" description="Administre los contactos de alerta de las instalaciones de su organización." /><EmptyOrganization /></>;
+
+  if (!allowed) return (
+    <>
+      <PageHeader eyebrow="Canal de alertas" title="Contactos WhatsApp" description="Administre los contactos de alerta de las instalaciones de su organización." />
+      <div className="notice warning" role="status">La consulta y administración de contactos requiere el rol Propietario o Administrador.</div>
+    </>
+  );
+
+  const visibleRecipients = installationFilter
+    ? recipients.filter((recipient) => recipient.installationId === installationFilter)
+    : recipients;
+
+  const installations = Array.from(
+    visibleRecipients.reduce((groups, recipient) => {
+      const current = groups.get(recipient.installationId) ?? [];
+      current.push(recipient);
+      groups.set(recipient.installationId, current);
+      return groups;
+    }, new Map<string, PhoneRecipient[]>()),
+  );
 
   return (
     <>
-      <PageHeader eyebrow="Canal de alertas" title="Verificar teléfono" description="Confirme el número que recibirá notificaciones críticas." />
-      <div className="phone-layout">
-        <section className="panel phone-panel">
-          <div className="channel-badge"><span>WA</span><div><b>WhatsApp</b><small>Canal de autenticación</small></div><i /></div>
-          {!allowed && <div className="notice warning">Esta acción requiere el rol Propietario o Administrador.</div>}
-          {message && <div className={`notice ${message.kind}`}>{message.text}</div>}
-          {!challenge ? (
-            <form onSubmit={(event) => void requestCode(event)}>
-              <label htmlFor="phone">Teléfono con código de país</label>
-              <input id="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+52 55 1234 5678" maxLength={40} required disabled={!allowed} />
-              <p className="field-help">Solo se conservará el número normalizado necesario para entregar alertas.</p>
-              <button className="button primary" disabled={!allowed || busy || !phone.trim()}>{busy ? 'Solicitando…' : 'Enviar código de verificación'}</button>
-            </form>
-          ) : (
-            <form onSubmit={(event) => void confirmCode(event)}>
-              <label htmlFor="verification-code">Código de seis dígitos</label>
-              <input
-                className="code-input six"
-                id="verification-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={code}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="000000"
-                pattern="\d{6}"
-                required
-              />
-              {challenge.developmentCode && (
-                <div className="development-code"><span>Solo desarrollo</span><b>{challenge.developmentCode}</b></div>
-              )}
-              <p className="field-help">Válido hasta {new Date(challenge.expiresAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}.</p>
-              <div className="button-row">
-                <button type="button" className="button secondary" onClick={() => setChallenge(null)}>Cambiar número</button>
-                <button className="button primary" disabled={busy || code.length !== 6}>{busy ? 'Verificando…' : 'Confirmar teléfono'}</button>
-              </div>
-            </form>
+      <PageHeader
+        eyebrow="Canal de alertas"
+        title="Contactos WhatsApp"
+        description={`Administre los contactos de alerta de las instalaciones de ${selected.organization.name}.`}
+      />
+
+      {message && <div className={`notice ${message.kind}`} role="status">{message.text}</div>}
+      {installationFilter && (
+        <div className="context-filter">
+          <span>Mostrando contactos de la instalación <b>{installationFilter}</b></span>
+          <button onClick={() => setSearchParams({})}>Ver todas</button>
+        </div>
+      )}
+
+      <div className="phone-management-layout">
+        <section className="panel recipient-panel">
+          <div className="panel-heading">
+            <div><p className="eyebrow">Instalaciones</p><h2>Contactos de alerta</h2></div>
+            <span>{visibleRecipients.length} {visibleRecipients.length === 1 ? 'contacto' : 'contactos'}</span>
+          </div>
+
+          {loadError && (
+            <div className="recipient-load-error">
+              <div className="notice error" role="alert">{loadError}</div>
+              <button className="button secondary" onClick={() => setReload((value) => value + 1)}>Reintentar</button>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="skeleton-list"><i /><i /><i /></div>
+          ) : !loadError && visibleRecipients.length === 0 ? (
+            <div className="inline-empty recipient-empty"><span>⌁</span><p>No hay contactos de alerta.<br />Las altas y verificaciones se realizan desde la app instalada.</p></div>
+          ) : !loadError && (
+            <div className="recipient-list">
+              {installations.map(([installationId, installationRecipients]) => (
+                <section className="installation-recipients" key={installationId}>
+                  <header>
+                    <div><h3>{installationRecipients[0].installationName?.trim() || 'Instalación sin nombre'}</h3><small>ID {installationId}</small></div>
+                    <span>{installationRecipients.length} {installationRecipients.length === 1 ? 'contacto' : 'contactos'}</span>
+                  </header>
+                  {installationRecipients.map((recipient) => {
+                    const status = statusDetails(recipient);
+                    const changing = changingId === recipient.id;
+                    return (
+                      <article className="recipient-row" key={recipient.id}>
+                        <div className="recipient-icon">WA</div>
+                        <div className="recipient-identity">
+                          <strong>{recipient.contactName}</strong>
+                          <small>{recipient.phoneMask}</small>
+                        </div>
+                        <span className={`recipient-status ${status.className}`}><i />{status.label}</span>
+                        <div className="recipient-actions">
+                          <button className="button secondary" disabled={changing || recipient.requiresReverification} onClick={() => void setRecipientEnabled(recipient)}>
+                            {recipient.enabled ? 'Desactivar' : 'Activar'}
+                          </button>
+                          <button className="recipient-delete" disabled={changing} onClick={() => void removeRecipient(recipient)} aria-label={`Eliminar a ${recipient.contactName}`}>
+                            Eliminar
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
           )}
         </section>
-        <aside className="privacy-card"><span>LOCAL / CLOUD</span><h2>Alertas precisas.<br />Evidencia privada.</h2><p>El canal cloud transporta metadatos y notificaciones. Las grabaciones permanecen bajo custodia de su instalación.</p><i>02</i></aside>
+
+        <aside className="panel recipient-guide">
+          <div className="channel-badge"><span>WA</span><div><b>Gestión desde la instalación</b><small>Alta y verificación local</small></div><i /></div>
+          <h2>Los contactos se registran en la app instalada</h2>
+          <p>Use la aplicación de cada instalación para dar de alta el contacto y verificar su número de WhatsApp. Una vez verificado, aparecerá automáticamente aquí para que el administrador pueda activarlo, desactivarlo o eliminarlo.</p>
+          <small className="security-note">VERIFICACIÓN LOCAL / ADMINISTRACIÓN CLOUD</small>
+        </aside>
       </div>
     </>
   );

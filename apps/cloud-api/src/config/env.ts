@@ -35,6 +35,10 @@ export function validateEnvironment(input: Record<string, unknown>): CloudEnviro
     }
   }
 
+  if (input.NODE_ENV === 'production' && input.WHATSAPP_ENABLED !== 'true') {
+    throw new Error('WHATSAPP_ENABLED must be true in production');
+  }
+
   if (input.WHATSAPP_ENABLED === 'true') {
     for (const key of [
       'WHATSAPP_ACCESS_TOKEN',
@@ -45,6 +49,12 @@ export function validateEnvironment(input: Record<string, unknown>): CloudEnviro
       if (typeof input[key] !== 'string' || input[key].trim() === '') {
         throw new Error(`Missing required WhatsApp environment variable: ${key}`);
       }
+    }
+  }
+
+  if (input.NODE_ENV === 'production' || input.WHATSAPP_ENABLED === 'true') {
+    if (typeof input.PHONE_FINGERPRINT_SECRET !== 'string' || input.PHONE_FINGERPRINT_SECRET.trim().length < 32) {
+      throw new Error('PHONE_FINGERPRINT_SECRET must contain at least 32 characters');
     }
   }
 

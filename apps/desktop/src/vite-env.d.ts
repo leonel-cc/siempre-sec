@@ -16,6 +16,13 @@ declare global {
       exchange: () => Promise<CloudEnrollmentStatus>;
       clear: () => Promise<CloudEnrollmentStatus>;
     };
+    phoneRecipients: {
+      list: () => Promise<PhoneRecipientView[]>;
+      requestVerification: (contactName: string, phone: string) => Promise<PhoneRecipientView[]>;
+      confirmVerification: (challengeId: string, code: string) => Promise<PhoneRecipientView[]>;
+      setEnabled: (recipientId: string, enabled: boolean) => Promise<PhoneRecipientView[]>;
+      delete: (recipientId: string) => Promise<PhoneRecipientView[]>;
+    };
     getDesktopPreferences: () => Promise<DesktopPreferences>;
     setDesktopPreferences: (updates: Partial<DesktopPreferences>) => Promise<DesktopPreferences>;
   }
@@ -32,6 +39,19 @@ declare global {
     startWithWindows: boolean;
     keepRunningInBackground: boolean;
     preventSleep: boolean;
+  }
+
+  interface PhoneRecipientView {
+    state: 'pending' | 'verified';
+    challengeId?: string;
+    recipientId?: string;
+    contactName: string;
+    phoneMask: string;
+    expiresAt?: string;
+    enabled?: boolean;
+    verifiedAt?: string;
+    requiresReverification?: boolean;
+    developmentCode?: string;
   }
 
   interface Window {

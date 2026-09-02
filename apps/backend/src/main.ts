@@ -22,7 +22,8 @@ async function bootstrap() {
   );
 
   const port = process.env.BACKEND_PORT || 3000;
-  await app.listen(port);
-  console.log(`Security AI Backend running on port ${port}`);
+  const host = process.env.BACKEND_HOST || '127.0.0.1';
+  await app.listen(port, host);
+  console.log(`Security AI Backend running on http://${host}:${port}`);
 }
 bootstrap();

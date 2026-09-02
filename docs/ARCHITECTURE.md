@@ -118,7 +118,8 @@ AI Pipeline
 - **Desktop ↔ Backend**: REST API + WebSocket
 - **Backend ↔ AI Service**: HTTP API
 - **Backend ↔ MediaMTX**: RTSP + HTTP API
-- **Backend ↔ WhatsApp**: HTTPS (Graph API)
+- **Backend ↔ Cloud API**: HTTPS with durable event outbox
+- **Cloud API ↔ WhatsApp**: HTTPS (Graph API)
 
 ## Scalability Path
 
@@ -143,4 +144,5 @@ AI Pipeline
 - RTSP streams not exposed to internet
 - Credentials encrypted at rest
 - No external AI inference (all local)
-- WhatsApp images sent only on user-configured alerts
+- WhatsApp credentials remain only in Cloud API
+- Full recipient numbers remain encrypted in their local installation

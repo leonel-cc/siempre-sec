@@ -47,8 +47,23 @@ export interface ViewSession {
   expiresAt: string;
 }
 
-export interface PhoneChallenge {
-  challengeId: string;
-  expiresAt: string;
-  developmentCode?: string;
+export interface PhoneRecipient {
+  id: string;
+  organizationId: string;
+  installationId: string;
+  installationName: string | null;
+  contactName: string;
+  phoneMask: string;
+  enabled: boolean;
+  requiresReverification: boolean;
+  verifiedAt: string;
+}
+
+export interface Installation {
+  id: string;
+  name: string;
+  platform: string;
+  lastHeartbeatAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
 }

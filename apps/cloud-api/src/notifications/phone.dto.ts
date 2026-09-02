@@ -1,8 +1,10 @@
 import { IsString, IsUUID, Length, Matches, MaxLength } from 'class-validator';
 
 export class RequestPhoneVerificationDto {
-  @IsUUID()
-  organizationId: string;
+  @IsString()
+  @MaxLength(120)
+  @Matches(/\S/)
+  contactName: string;
 
   @IsString()
   @MaxLength(40)
@@ -11,10 +13,11 @@ export class RequestPhoneVerificationDto {
 
 export class ConfirmPhoneVerificationDto {
   @IsUUID()
-  organizationId: string;
-
-  @IsUUID()
   challengeId: string;
+
+  @IsString()
+  @MaxLength(40)
+  phone: string;
 
   @IsString()
   @Length(6, 6)

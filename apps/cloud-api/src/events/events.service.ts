@@ -49,7 +49,7 @@ export class EventsService {
     }
 
     if (ALERT_EVENT_TYPES.has(event.eventType)) {
-      await this.alerts.dispatch(event);
+      await this.alerts.dispatch(event, installation, dto.recipients ?? [], camera?.displayName ?? 'Unknown camera');
     }
     return event;
   }

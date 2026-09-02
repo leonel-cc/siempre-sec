@@ -15,6 +15,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exchange: () => ipcRenderer.invoke('cloud-enrollment-exchange'),
     clear: () => ipcRenderer.invoke('cloud-enrollment-clear'),
   },
+  phoneRecipients: {
+    list: () => ipcRenderer.invoke('phone-recipients:list'),
+    requestVerification: (contactName: string, phone: string) =>
+      ipcRenderer.invoke('phone-recipients:request', contactName, phone),
+    confirmVerification: (challengeId: string, code: string) =>
+      ipcRenderer.invoke('phone-recipients:confirm', challengeId, code),
+    setEnabled: (recipientId: string, enabled: boolean) =>
+      ipcRenderer.invoke('phone-recipients:set-enabled', recipientId, enabled),
+    delete: (recipientId: string) => ipcRenderer.invoke('phone-recipients:delete', recipientId),
+  },
   getDesktopPreferences: () => ipcRenderer.invoke('desktop-preferences:get'),
   setDesktopPreferences: (updates: Record<string, boolean>) =>
     ipcRenderer.invoke('desktop-preferences:set', updates),

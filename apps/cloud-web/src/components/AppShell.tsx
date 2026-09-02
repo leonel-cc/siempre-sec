@@ -6,10 +6,11 @@ import { config } from '../config';
 
 const navigation = [
   { to: '/', label: 'Resumen', glyph: '⌂' },
+  { to: '/installations', label: 'Instalaciones', mobileLabel: 'Instal.', glyph: '◇' },
   { to: '/cameras', label: 'Cámaras', glyph: '◉' },
   { to: '/events', label: 'Eventos', glyph: '!' },
   { to: '/enrollment', label: 'Instalar', glyph: '+' },
-  { to: '/phone', label: 'Alertas', glyph: '⌁' },
+  { to: '/phone', label: 'WhatsApp', glyph: '⌁' },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -70,7 +71,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <nav className="mobile-nav" aria-label="Navegación móvil">
         {navigation.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.to === '/'}>
-            <span>{item.glyph}</span>{item.label}
+            <span>{item.glyph}</span>{item.mobileLabel ?? item.label}
           </NavLink>
         ))}
       </nav>

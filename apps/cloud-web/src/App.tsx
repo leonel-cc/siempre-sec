@@ -6,6 +6,7 @@ import { CamerasPage } from './pages/CamerasPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { EnrollmentPage } from './pages/EnrollmentPage';
 import { EventsPage } from './pages/EventsPage';
+import { InstallationsPage } from './pages/InstallationsPage';
 import { PhoneVerificationPage } from './pages/PhoneVerificationPage';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/cameras" element={<CamerasPage />} />
               <Route path="/events" element={<EventsPage />} />
+              <Route path="/installations" element={<InstallationsPage />} />
               <Route path="/enrollment" element={<EnrollmentPage />} />
               <Route path="/phone" element={<PhoneVerificationPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

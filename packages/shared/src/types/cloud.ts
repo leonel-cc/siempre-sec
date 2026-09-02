@@ -55,10 +55,30 @@ export interface PhoneVerificationRequestResult {
   developmentCode?: string;
 }
 
-export interface CloudEventInput {
+export interface PhoneRecipientTransport {
+  recipientId: string;
+  phone: string;
+}
+
+export interface PersistedCloudEventInput {
   localEventId: string;
   localCameraId?: string;
   eventType: string;
   occurredAt: string;
   metadata: Record<string, unknown>;
+}
+
+export interface CloudEventTransportInput extends PersistedCloudEventInput {
+  recipients?: PhoneRecipientTransport[];
+}
+
+export interface PhoneRecipientsGetMessage {
+  type: 'phone-recipients:get';
+  requestId: string;
+}
+
+export interface PhoneRecipientsResultMessage {
+  type: 'phone-recipients:result';
+  requestId: string;
+  recipients: PhoneRecipientTransport[];
 }

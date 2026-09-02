@@ -258,8 +258,8 @@ export class CloudEvent extends BaseEntity {
 }
 
 @Entity('phone_recipients')
-@Unique('uq_phone_recipients_organization', ['organizationId'])
-@Index('idx_phone_recipients_verified', ['verifiedAt'])
+@Unique('uq_phone_recipients_installation_fingerprint', ['installationId', 'phoneFingerprint'])
+@Index('idx_phone_recipients_org_installation', ['organizationId', 'installationId'])
 export class PhoneRecipient extends BaseEntity {
   @Column({ name: 'organization_id', type: 'uuid' })
   organizationId: string;
@@ -268,15 +268,34 @@ export class PhoneRecipient extends BaseEntity {
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
 
-  @Column({ name: 'phone_e164', length: 16 })
-  phoneE164: string;
+  @Column({ name: 'installation_id', type: 'uuid' })
+  installationId: string;
 
-  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
-  verifiedAt: Date | null;
+  @ManyToOne(() => Installation, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'installation_id' })
+  installation: Installation;
+
+  @Column({ name: 'contact_name', length: 120 })
+  contactName: string;
+
+  @Column({ name: 'phone_mask', length: 24 })
+  phoneMask: string;
+
+  @Column({ name: 'phone_fingerprint', length: 64 })
+  phoneFingerprint: string;
+
+  @Column({ name: 'verified_at', type: 'timestamptz' })
+  verifiedAt: Date;
+
+  @Column({ default: true })
+  enabled: boolean;
+
+  @Column({ name: 'requires_reverification', default: false })
+  requiresReverification: boolean;
 }
 
 @Entity('verification_challenges')
-@Index('idx_verification_org_expiry', ['organizationId', 'expiresAt'])
+@Index('idx_verification_installation_expiry', ['installationId', 'expiresAt'])
 @Check('ck_verification_attempts_nonnegative', 'attempts >= 0')
 export class VerificationChallenge extends BaseEntity {
   @Column({ name: 'organization_id', type: 'uuid' })
@@ -286,11 +305,21 @@ export class VerificationChallenge extends BaseEntity {
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
 
-  @Column({ name: 'requested_by_user_id', type: 'uuid' })
-  requestedByUserId: string;
+  @Column({ name: 'installation_id', type: 'uuid' })
+  installationId: string;
 
-  @Column({ name: 'phone_e164', length: 16 })
-  phoneE164: string;
+  @ManyToOne(() => Installation, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'installation_id' })
+  installation: Installation;
+
+  @Column({ name: 'contact_name', length: 120 })
+  contactName: string;
+
+  @Column({ name: 'phone_fingerprint', length: 64 })
+  phoneFingerprint: string;
+
+  @Column({ name: 'phone_mask', length: 24 })
+  phoneMask: string;
 
   @Column({ name: 'code_hash', type: 'text' })
   codeHash: string;
@@ -306,7 +335,7 @@ export class VerificationChallenge extends BaseEntity {
 }
 
 @Entity('notification_deliveries')
-@Unique('uq_notification_event_channel', ['cloudEventId', 'channel'])
+@Unique('uq_notification_event_channel_recipient', ['cloudEventId', 'channel', 'recipientId'])
 @Index('idx_notification_org_created', ['organizationId', 'createdAt'])
 export class NotificationDelivery extends BaseEntity {
   @Column({ name: 'organization_id', type: 'uuid' })
@@ -325,6 +354,12 @@ export class NotificationDelivery extends BaseEntity {
 
   @Column({ type: 'enum', enum: NotificationChannel, enumName: 'notification_channel_enum' })
   channel: NotificationChannel;
+
+  @Column({ name: 'recipient_id', type: 'uuid', nullable: true })
+  recipientId: string | null;
+
+  @Column({ name: 'phone_mask', type: 'varchar', length: 24, nullable: true })
+  phoneMask: string | null;
 
   @Column({ length: 30 })
   status: string;

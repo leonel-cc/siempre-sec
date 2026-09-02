@@ -1,21 +1,27 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
-  CloudCamera,
   NotificationDelivery,
   PhoneRecipient,
   VerificationChallenge,
 } from '../entities/entities';
 import { AlertDispatchService } from './alert-dispatch.service';
-import { PhoneController } from './phone.controller';
+import {
+  DevicePhoneRecipientsController,
+  OrganizationPhoneRecipientsController,
+} from './phone.controller';
 import { PhoneVerificationService } from './phone-verification.service';
 import { MetaWhatsAppProvider, WHATSAPP_PROVIDER } from './whatsapp.provider';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([VerificationChallenge, PhoneRecipient, NotificationDelivery, CloudCamera]),
+    TypeOrmModule.forFeature([
+      VerificationChallenge,
+      PhoneRecipient,
+      NotificationDelivery,
+    ]),
   ],
-  controllers: [PhoneController],
+  controllers: [DevicePhoneRecipientsController, OrganizationPhoneRecipientsController],
   providers: [
     PhoneVerificationService,
     AlertDispatchService,
