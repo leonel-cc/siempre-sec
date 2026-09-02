@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { PageHeader } from '../components/AppShell';
 import { roleLabel, useOrganizations } from '../organizations/OrganizationProvider';
+import { config } from '../config';
 
 export function DashboardPage() {
   const { memberships, selected, loading, error, select, create } = useOrganizations();
@@ -31,7 +32,7 @@ export function DashboardPage() {
       <section className="metric-strip">
         <article><span>ORGANIZACIONES</span><strong>{memberships.length.toString().padStart(2, '0')}</strong><small>vinculadas a su identidad</small></article>
         <article><span>ORGANIZACIÓN ACTIVA</span><strong className="metric-name">{selected?.organization.name ?? 'Sin asignar'}</strong><small>{selected ? roleLabel(selected.role) : 'Cree la primera para comenzar'}</small></article>
-        <article className="system-ok"><span>ESTADO DEL PORTAL</span><strong><i />Protegido</strong><small>Sesión y API autenticadas</small></article>
+        <article className="system-ok"><span>ESTADO DEL PORTAL</span><strong><i />{config.developmentAuth ? 'Desarrollo' : 'Protegido'}</strong><small>{config.developmentAuth ? 'Identidad local temporal' : 'Sesión y API autenticadas'}</small></article>
       </section>
 
       <div className="dashboard-grid">

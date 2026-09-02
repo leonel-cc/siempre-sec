@@ -11,11 +11,10 @@ import { TenantRolesGuard } from './tenant-roles.guard';
 @Module({
   imports: [TypeOrmModule.forFeature([User, Membership, Installation])],
   providers: [
-    InstallationAuthGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: OidcAuthGuard },
     { provide: APP_GUARD, useClass: TenantRolesGuard },
+    { provide: APP_GUARD, useClass: InstallationAuthGuard },
   ],
-  exports: [InstallationAuthGuard],
 })
 export class AuthModule {}

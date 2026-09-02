@@ -1,0 +1,374 @@
+SIEMPRE SECURITY AI - CONTEXTO Y PROCEDIMIENTOS DE CONTINUIDAD
+==============================================================
+
+PROPOSITO DEL DOCUMENTO
+-----------------------
+
+Este archivo resume el estado funcional del acceso remoto cloud y el entorno
+local de desarrollo. Esta pensado para entregar contexto a otro LLM o a una
+persona que continue el trabajo sin reconstruir las decisiones previas.
+
+
+1. ESTADO GENERAL
+-----------------
+
+- Repositorio: C:\Dev\siempre-sec
+- Rama de trabajo: staging
+- La rama develop fue mergeada a staging mediante un merge commit normal.
+- El portal cloud tiene una primera vista funcional en desarrollo.
+- PostgreSQL local se ejecuta con Docker Desktop.
+- La Cloud API usa autenticacion local automatica solo en desarrollo.
+- El portal usa una identidad local temporal y no requiere OIDC en desarrollo.
+- La organizacion inicial local se llama "Siempre Development".
+- El dato de la organizacion vive en el volumen Docker, no en Git.
+- El flujo OIDC real se conserva para el despliegue futuro.
+
+
+2. COMPONENTES PRINCIPALES
+--------------------------
+
+apps/desktop
+  Aplicacion Electron local. Inicia backend, IA y MediaMTX. Puede mantenerse
+  activa en segundo plano, iniciar con Windows y evitar suspension. Contiene el
+  flujo para enrolar la instalacion en una organizacion cloud.
+
+apps/backend
+  Backend local NestJS. Persiste configuracion y eventos locales. La carpeta
+  src/cloud contiene la sincronizacion de heartbeat, camaras, eventos, comandos
+  remotos y la outbox durable.
+
+apps/ai
+  Servicio local Python de captura, deteccion y streaming. Las credenciales
+  RTSP y el procesamiento de IA permanecen en el equipo del cliente.
+
+apps/cloud-api
+  Control plane NestJS central. Maneja usuarios, organizaciones, roles,
+  instalaciones, enrolamiento, camaras, eventos, sesiones LiveKit, telefonos,
+  WhatsApp y auditoria.
+
+apps/cloud-web
+  Portal React/Vite. Presenta dashboard, organizaciones, camaras, eventos,
+  enrolamiento y configuracion de telefono. Usa LiveKit para video remoto.
+
+packages/shared
+  Contratos TypeScript compartidos entre backend local, Electron y cloud.
+
+infrastructure/docker/docker-compose.cloud.dev.yml
+  PostgreSQL 16 para desarrollo local.
+
+
+3. ARQUITECTURA DEL ACCESO REMOTO
+---------------------------------
+
+1. Electron solicita un challenge de enrolamiento a la Cloud API.
+2. Un OWNER o ADMIN aprueba el codigo desde el portal.
+3. Electron intercambia el challenge por installationId y secret.
+4. Electron cifra esas credenciales con safeStorage.
+5. El backend local recibe las credenciales como variables de proceso.
+6. El backend envia heartbeat, inventario de camaras y eventos cloud.
+7. Los eventos se guardan primero en una outbox SQLite local atomica.
+8. El portal pide una sesion remota para una camara.
+9. La Cloud API crea un Ingress RTMP y un token de espectador LiveKit.
+10. La instalacion recibe START_LIVE y publica el stream local con FFmpeg.
+11. La publicacion se supervisa y se detiene al vencer su TTL.
+
+Las URL, usuarios y claves RTSP nunca se envian al cloud. Las evidencias de
+video tampoco se copian al cloud en el MVP; solo se sincronizan metadatos.
+
+
+4. MODO DE DESARROLLO LOCAL
+---------------------------
+
+La autenticacion local esta controlada por dos variables:
+
+  apps/cloud-api/.env
+    DEV_AUTH_ENABLED=true
+    NODE_ENV=development
+
+  apps/cloud-web/.env
+    VITE_DEV_AUTH=true
+
+Ambos archivos .env estan ignorados por Git. Los archivos .env.example si se
+versionan y documentan la configuracion.
+
+La Cloud API solo acepta DEV_AUTH_ENABLED=true cuando NODE_ENV=development.
+Ademas, cuando este modo esta activo escucha solamente en 127.0.0.1. Vite solo
+activa VITE_DEV_AUTH durante vite dev, nunca en un build de produccion. No
+quitar estas protecciones ni desplegar el modo de desarrollo en Internet.
+
+Identidad local usada:
+
+  issuer: urn:siempre:development
+  subject: local-developer
+  email: developer@siempre.local
+  nombre: Usuario de desarrollo
+
+El guard crea o actualiza este usuario en PostgreSQL y lo vincula a membresias
+pendientes por email. El portal envia el token simbolico "development"; el
+token solo es aceptado porque la API esta en modo de desarrollo.
+
+
+5. CONFIGURACION LOCAL ACTUAL
+-----------------------------
+
+Cloud API:
+
+  NODE_ENV=development
+  PORT=3100
+  CLOUD_WEB_ORIGIN=http://localhost:5174
+  DATABASE_URL=postgresql://security_ai:security_ai_dev@localhost:5432/security_ai_cloud
+  DEV_AUTH_ENABLED=true
+  WHATSAPP_ENABLED=false
+
+Portal:
+
+  VITE_CLOUD_API_URL=http://localhost:3100
+  VITE_DEV_AUTH=true
+
+Direcciones:
+
+  Portal:     http://localhost:5174
+  Cloud API:  http://localhost:3100/v1
+  Health:     http://localhost:3100/v1/health
+  PostgreSQL: localhost:5432
+
+
+6. PROCEDIMIENTO DE ARRANQUE
+----------------------------
+
+Desde la raiz del repositorio:
+
+1. Instalar dependencias si es necesario:
+
+   npm install
+
+2. Iniciar Docker Desktop:
+
+   docker desktop start
+
+3. Iniciar PostgreSQL:
+
+   docker compose -f infrastructure/docker/docker-compose.cloud.dev.yml up -d
+
+4. Confirmar que PostgreSQL esta healthy:
+
+   docker compose -f infrastructure/docker/docker-compose.cloud.dev.yml ps
+
+5. Compilar la Cloud API y el portal:
+
+   npm run build:cloud
+   npm run build:web
+
+6. Iniciar la Cloud API:
+
+   npm run dev:cloud
+
+7. En otra terminal, iniciar el portal:
+
+   npm run dev:web
+
+8. Abrir:
+
+   http://localhost:5174
+
+No levantar varias instancias de la API en puertos de diagnostico. Si el equipo
+parece lento o las terminales se repiten, comprobar los puertos 3100 y 5174 y
+dejar un solo proceso propietario de cada puerto.
+
+
+7. PRUEBAS MANUALES RAPIDAS
+---------------------------
+
+Health:
+
+  curl http://localhost:3100/v1/health
+
+Respuesta esperada:
+
+  {"status":"ok"}
+
+Listar organizaciones:
+
+  curl -H "Authorization: Bearer development" \
+    http://localhost:3100/v1/organizations
+
+Crear la primera organizacion si la lista esta vacia:
+
+  curl -X POST \
+    -H "Authorization: Bearer development" \
+    -H "Content-Type: application/json" \
+    --data "{\"name\":\"Siempre Development\"}" \
+    http://localhost:3100/v1/organizations
+
+La organizacion inicial ya fue creada en el volumen Docker de esta maquina.
+
+
+8. ERRORES CORREGIDOS DURANTE EL ARRANQUE REAL
+----------------------------------------------
+
+DataTypeNotSupportedError para User.email:
+  Las propiedades string | null sin tipo explicito emitian metadata Object.
+  Todas las columnas varchar anulables ahora declaran type: 'varchar'.
+
+InstallationRepository no disponible en EventsModule:
+  InstallationAuthGuard dejo de instanciarse directamente en cada modulo.
+  Ahora es un APP_GUARD global y se activa solo en handlers con @DeviceAuth().
+
+column excluded.emailVerified does not exist:
+  El upsert de usuarios usaba nombres de propiedades TypeScript en orUpdate.
+  Ahora usa los nombres SQL email_verified y display_name.
+
+PowerShell -SkipHttpErrorCheck:
+  Ese parametro no existe en Windows PowerShell 5. Usar curl para pruebas HTTP
+  o Invoke-WebRequest sin dicho parametro.
+
+
+9. SEGURIDAD Y TENANCY
+----------------------
+
+- Produccion valida JWT OIDC por JWKS, issuer y audience.
+- La SPA real usa Authorization Code + PKCE y sessionStorage.
+- El modo local solo puede habilitarse con NODE_ENV=development.
+- Organizaciones y recursos se validan por membresia y rol.
+- Roles: OWNER, ADMIN, OPERATOR y VIEWER.
+- Los secrets de instalaciones se guardan como hash en PostgreSQL.
+- Electron cifra credenciales locales mediante safeStorage.
+- Una instalacion puede revocarse y OWNER/ADMIN puede revocarla remotamente.
+- La revocacion se audita e invalida el Ingress LiveKit de sus camaras.
+- La API usa Helmet, DTO estrictos, CORS allowlist y rate limiting.
+- Los eventos son idempotentes por installationId + localEventId.
+- Los envios WhatsApp usan lease y reintentos para evitar perdida silenciosa.
+
+
+10. WHATSAPP
+------------
+
+En desarrollo WHATSAPP_ENABLED=false, por lo que no se llama a Meta.
+
+Cuando la instalacion esta enrolada, el cloud es el propietario de las alertas
+para evitar duplicados. Si Meta falla, la API devuelve error temporal y la
+outbox local vuelve a intentar. Si cloud no esta configurado, se conserva el
+adaptador WhatsApp local existente.
+
+Para produccion hacen falta:
+
+- WHATSAPP_ACCESS_TOKEN
+- WHATSAPP_PHONE_NUMBER_ID
+- WHATSAPP_AUTH_TEMPLATE_NAME
+- WHATSAPP_ALERT_TEMPLATE_NAME
+- WHATSAPP_TEMPLATE_LANGUAGE
+- WHATSAPP_ENABLED=true
+
+
+11. LIVEKIT
+-----------
+
+En desarrollo local el portal puede navegar organizaciones, enrolamiento,
+eventos y camaras sin LiveKit, pero no puede iniciar video remoto real hasta
+configurar:
+
+- LIVEKIT_URL
+- LIVEKIT_API_KEY
+- LIVEKIT_API_SECRET
+
+El backend local necesita FFmpeg. Electron configura FFMPEG_PATH en el bundle.
+La Cloud API no crea sesiones para instalaciones revocadas u offline.
+
+
+12. PASO A SERVICIOS REALES
+---------------------------
+
+Antes de desplegar en la web:
+
+1. Provisionar PostgreSQL administrado con TLS y backups.
+2. Configurar un proveedor OIDC y registrar callback/logout del portal.
+3. Quitar DEV_AUTH_ENABLED de la API.
+4. Quitar VITE_DEV_AUTH del portal.
+5. Configurar OIDC_ISSUER, OIDC_AUDIENCE y OIDC_JWKS_URI.
+6. Configurar VITE_OIDC_AUTHORITY, VITE_OIDC_CLIENT_ID,
+   VITE_OIDC_REDIRECT_URI y VITE_OIDC_SCOPE.
+7. Configurar LiveKit Cloud con Ingress.
+8. Configurar Meta WhatsApp Cloud API y plantillas aprobadas.
+9. Cambiar CLOUD_WEB_ORIGIN al dominio HTTPS exacto del portal.
+10. Desplegar API y portal detras de HTTPS.
+11. Ejecutar pruebas de integracion y penetracion en staging real.
+
+
+13. COMANDOS DE VERIFICACION
+----------------------------
+
+  npm run build:shared
+  npm run build:backend
+  npm run build:desktop
+  npm run build:cloud
+  npm run build:web
+  npm run test --workspace=apps/cloud-api
+  apps/ai/.venv/Scripts/python.exe -m unittest discover -s tests -p "test_threat_pipeline.py"
+  git diff --check
+
+El lint general actualmente no puede ejecutarse porque ESLint no esta instalado
+en los workspaces backend/desktop. No confundir esa carencia de tooling con un
+error de compilacion.
+
+
+14. LIMITACIONES CONOCIDAS
+--------------------------
+
+- OIDC, LiveKit y Meta reales no estan configurados en el entorno local.
+- El portal web genera un bundle grande y Vite muestra una advertencia de chunk.
+- npm audit conserva dependencias vulnerables que requieren upgrades mayores.
+- Las evidencias de video siguen siendo locales en el MVP.
+- El agente Windows todavia depende del ciclo de vida de Electron, aunque ahora
+  Electron puede permanecer en segundo plano y reinicia servicios caidos.
+- Falta una prueba end-to-end automatizada del enrolamiento Electron + cloud.
+
+
+15. ESTADO DE GIT Y PRECAUCIONES
+-------------------------------
+
+- Trabajar sobre staging salvo instruccion contraria.
+- No usar force-push ni rebase destructivo.
+- No revertir cambios ajenos en un worktree sucio.
+- apps/backend/src/evidence/evidence.service.ts era un archivo local no rastreado
+  anterior a este trabajo. No incluirlo ni modificarlo sin revisarlo con el
+  usuario.
+- Los .env locales estan ignorados y no deben subirse.
+- Los .env.example si deben mantenerse actualizados.
+
+
+16. ARCHIVOS CLAVE PARA CONTINUAR
+--------------------------------
+
+- apps/cloud-api/src/auth/oidc-auth.guard.ts
+- apps/cloud-api/src/auth/installation-auth.guard.ts
+- apps/cloud-api/src/auth/auth.decorators.ts
+- apps/cloud-api/src/config/env.ts
+- apps/cloud-api/src/entities/entities.ts
+- apps/cloud-api/src/database/migrations/1788208000000-initial-cloud-schema.ts
+- apps/cloud-api/src/organizations/organizations.service.ts
+- apps/cloud-api/src/enrollment/enrollment.service.ts
+- apps/cloud-api/src/media/view-sessions.service.ts
+- apps/cloud-api/src/notifications/alert-dispatch.service.ts
+- apps/cloud-web/src/auth/AuthProvider.tsx
+- apps/cloud-web/src/auth/manager.ts
+- apps/cloud-web/src/config.ts
+- apps/cloud-web/src/organizations/OrganizationProvider.tsx
+- apps/backend/src/cloud/cloud-sync.service.ts
+- apps/desktop/electron/cloud-enrollment.ts
+- apps/desktop/electron/main.ts
+- ACCESO_REMOTO_CLOUD.txt
+
+
+17. SIGUIENTES TAREAS RECOMENDADAS
+---------------------------------
+
+1. Agregar pruebas de integracion PostgreSQL para migraciones y guards.
+2. Automatizar un smoke test API que cree y liste una organizacion.
+3. Agregar una vista de instalaciones y revocacion al portal.
+4. Implementar STOP_LIVE explicito ademas del TTL.
+5. Agregar observabilidad de outbox, comandos, Ingress y WhatsApp.
+6. Dividir el bundle del portal con carga diferida de LiveKit.
+7. Resolver las vulnerabilidades npm mediante upgrades mayores controlados.
+8. Crear configuracion IaC para los proveedores administrados.
+
+FIN DEL CONTEXTO.

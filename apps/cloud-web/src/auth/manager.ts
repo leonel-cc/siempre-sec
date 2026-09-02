@@ -1,7 +1,7 @@
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { config, configErrors } from '../config';
 
-export const userManager = configErrors.length === 0
+export const userManager = configErrors.length === 0 && !config.developmentAuth
   ? new UserManager({
       authority: config.oidcAuthority,
       client_id: config.oidcClientId,
@@ -17,5 +17,6 @@ export const userManager = configErrors.length === 0
   : null;
 
 export async function currentAccessToken(): Promise<string | null> {
+  if (config.developmentAuth) return 'development';
   return (await userManager?.getUser())?.access_token ?? null;
 }

@@ -19,7 +19,12 @@ async function bootstrap(): Promise<void> {
       transform: true,
     }),
   );
-  await app.listen(Number(process.env.PORT ?? 3100));
+  const developmentAuth = process.env.DEV_AUTH_ENABLED === 'true'
+    && process.env.NODE_ENV === 'development';
+  await app.listen(
+    Number(process.env.PORT ?? 3100),
+    developmentAuth ? '127.0.0.1' : '0.0.0.0',
+  );
 }
 
 void bootstrap();

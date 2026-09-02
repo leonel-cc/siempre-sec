@@ -37,13 +37,13 @@ export class User extends BaseEntity {
   @Column({ length: 255 })
   subject: string;
 
-  @Column({ nullable: true, length: 320 })
+  @Column({ type: 'varchar', nullable: true, length: 320 })
   email: string | null;
 
   @Column({ name: 'email_verified', default: false })
   emailVerified: boolean;
 
-  @Column({ name: 'display_name', nullable: true, length: 160 })
+  @Column({ name: 'display_name', type: 'varchar', nullable: true, length: 160 })
   displayName: string | null;
 }
 
@@ -176,7 +176,7 @@ export class CloudCamera extends BaseEntity {
   @Column({ default: true })
   enabled: boolean;
 
-  @Column({ name: 'ingress_id', nullable: true, length: 160 })
+  @Column({ name: 'ingress_id', type: 'varchar', nullable: true, length: 160 })
   ingressId: string | null;
 
   @Column({ name: 'ingress_url', nullable: true, type: 'text' })
@@ -214,7 +214,7 @@ export class RemoteCommand extends BaseEntity {
   @Column({ name: 'acknowledged_at', type: 'timestamptz', nullable: true })
   acknowledgedAt: Date | null;
 
-  @Column({ nullable: true, length: 500 })
+  @Column({ type: 'varchar', nullable: true, length: 500 })
   error: string | null;
 }
 
@@ -329,10 +329,10 @@ export class NotificationDelivery extends BaseEntity {
   @Column({ length: 30 })
   status: string;
 
-  @Column({ name: 'provider_message_id', nullable: true, length: 255 })
+  @Column({ name: 'provider_message_id', type: 'varchar', nullable: true, length: 255 })
   providerMessageId: string | null;
 
-  @Column({ name: 'error_code', nullable: true, length: 100 })
+  @Column({ name: 'error_code', type: 'varchar', nullable: true, length: 100 })
   errorCode: string | null;
 }
 
@@ -352,10 +352,10 @@ export class AuditEntry extends BaseEntity {
   @Column({ length: 100 })
   action: string;
 
-  @Column({ name: 'target_type', nullable: true, length: 80 })
+  @Column({ name: 'target_type', type: 'varchar', nullable: true, length: 80 })
   targetType: string | null;
 
-  @Column({ name: 'target_id', nullable: true, length: 160 })
+  @Column({ name: 'target_id', type: 'varchar', nullable: true, length: 160 })
   targetId: string | null;
 
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })

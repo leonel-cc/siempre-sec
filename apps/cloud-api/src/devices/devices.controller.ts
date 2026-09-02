@@ -1,19 +1,19 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import {
   AllowRevokedInstallation,
   CurrentInstallation,
   CurrentUserParam,
+  DeviceAuth,
   Public,
   Roles,
 } from '../auth/auth.decorators';
-import { InstallationAuthGuard } from '../auth/installation-auth.guard';
 import { Installation, MembershipRole } from '../entities/entities';
 import { CurrentUser } from '../auth/auth.types';
 import { AcknowledgeCommandDto, SyncCamerasDto } from './devices.dto';
 import { DevicesService } from './devices.service';
 
 @Public()
-@UseGuards(InstallationAuthGuard)
+@DeviceAuth()
 @Controller('installations/me')
 export class DevicesController {
   constructor(private readonly devices: DevicesService) {}

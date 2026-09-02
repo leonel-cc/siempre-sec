@@ -5,7 +5,7 @@ import { Reflector } from '@nestjs/core';
 import { Installation } from '../entities/entities';
 import { verifyEnrollmentSecret } from '../enrollment/enrollment.crypto';
 import { AuthenticatedRequest } from './auth.types';
-import { ALLOW_REVOKED_INSTALLATION_KEY } from './auth.decorators';
+import { ALLOW_REVOKED_INSTALLATION_KEY, DEVICE_AUTH_KEY } from './auth.decorators';
 
 @Injectable()
 export class InstallationAuthGuard implements CanActivate {
@@ -15,6 +15,12 @@ export class InstallationAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const deviceAuth = this.reflector.getAllAndOverride<boolean>(DEVICE_AUTH_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!deviceAuth) return true;
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const authorization = request.headers.authorization;
     const match = /^Device ([0-9a-f-]{36})\.([A-Za-z0-9_-]{40,})$/i.exec(authorization ?? '');

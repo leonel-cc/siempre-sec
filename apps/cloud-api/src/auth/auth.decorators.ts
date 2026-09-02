@@ -5,10 +5,12 @@ import { AuthenticatedRequest, CurrentUser } from './auth.types';
 export const IS_PUBLIC_KEY = 'isPublic';
 export const ROLES_KEY = 'organizationRoles';
 export const ALLOW_REVOKED_INSTALLATION_KEY = 'allowRevokedInstallation';
+export const DEVICE_AUTH_KEY = 'deviceAuth';
 
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 export const Roles = (...roles: MembershipRole[]) => SetMetadata(ROLES_KEY, roles);
 export const AllowRevokedInstallation = () => SetMetadata(ALLOW_REVOKED_INSTALLATION_KEY, true);
+export const DeviceAuth = () => SetMetadata(DEVICE_AUTH_KEY, true);
 
 export const CurrentUserParam = createParamDecorator(
   (_data: unknown, context: ExecutionContext): CurrentUser => {

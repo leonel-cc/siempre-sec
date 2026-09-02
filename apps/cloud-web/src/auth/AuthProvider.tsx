@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { User } from 'oidc-client-ts';
-import { configErrors } from '../config';
+import { config, configErrors } from '../config';
 import { userManager } from './manager';
 
 interface AuthContextValue {
@@ -22,6 +22,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (config.developmentAuth) {
+      setUser(new User({
+        access_token: 'development',
+        token_type: 'Bearer',
+        profile: {
+          iss: 'urn:siempre:development',
+          aud: 'siempre-cloud-api',
+          sub: 'local-developer',
+          exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
+          iat: Math.floor(Date.now() / 1000),
+          name: 'Usuario de desarrollo',
+          email: 'developer@siempre.local',
+        },
+      }));
+      setLoading(false);
+      return;
+    }
     if (!userManager) {
       setLoading(false);
       return;
@@ -127,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
+    if (config.developmentAuth) return;
     await userManager?.signoutRedirect();
   };
 

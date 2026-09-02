@@ -9,7 +9,13 @@ export interface CloudEnvironment {
 }
 
 export function validateEnvironment(input: Record<string, unknown>): CloudEnvironment {
-  const required = ['DATABASE_URL', 'OIDC_ISSUER', 'OIDC_AUDIENCE', 'OIDC_JWKS_URI'] as const;
+  const developmentAuth = input.DEV_AUTH_ENABLED === 'true';
+  if (developmentAuth && input.NODE_ENV !== 'development') {
+    throw new Error('DEV_AUTH_ENABLED requires NODE_ENV=development');
+  }
+  const required = developmentAuth
+    ? ['DATABASE_URL'] as const
+    : ['DATABASE_URL', 'OIDC_ISSUER', 'OIDC_AUDIENCE', 'OIDC_JWKS_URI'] as const;
   for (const key of required) {
     if (typeof input[key] !== 'string' || input[key].trim() === '') {
       throw new Error(`Missing required environment variable: ${key}`);
@@ -21,7 +27,7 @@ export function validateEnvironment(input: Record<string, unknown>): CloudEnviro
     throw new Error('PORT must be a valid TCP port');
   }
 
-  for (const key of ['OIDC_ISSUER', 'OIDC_JWKS_URI'] as const) {
+  for (const key of developmentAuth ? [] : ['OIDC_ISSUER', 'OIDC_JWKS_URI'] as const) {
     try {
       new URL(String(input[key]));
     } catch {

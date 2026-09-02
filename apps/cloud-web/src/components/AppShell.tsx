@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Brand, useAuth } from '../auth/AuthProvider';
 import { roleLabel, useOrganizations } from '../organizations/OrganizationProvider';
+import { config } from '../config';
 
 const navigation = [
   { to: '/', label: 'Resumen', glyph: '⌂' },
@@ -30,7 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </NavLink>
           ))}
         </nav>
-        <div className="sidebar-status"><i /><span>Servicios cloud<small>Canal operativo</small></span></div>
+        <div className="sidebar-status"><i /><span>Servicios cloud<small>{config.developmentAuth ? 'Entorno local' : 'Canal operativo'}</small></span></div>
       </aside>
 
       <div className="workspace">
@@ -57,7 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             {profileOpen && (
               <div className="profile-menu">
-                <small>Sesión OIDC activa</small>
+                <small>{config.developmentAuth ? 'Sesión local de desarrollo' : 'Sesión OIDC activa'}</small>
                 <button onClick={() => void signOut()}>Cerrar sesión</button>
               </div>
             )}

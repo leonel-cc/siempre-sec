@@ -243,9 +243,9 @@ Pruebas ejecutadas para esta entrega:
   "test_threat_pipeline.py"
 - git diff --check
 
-La suite cloud contiene 8 pruebas para permisos, politicas de proveedor,
-criptografia telefonica y criptografia de enrolamiento. La suite de IA contiene
-30 pruebas del pipeline de amenazas.
+La suite cloud contiene 13 pruebas para permisos, politicas de proveedor,
+configuracion de entorno, criptografia telefonica y criptografia de
+enrolamiento. La suite de IA contiene 30 pruebas del pipeline de amenazas.
 
 
 14. LIMITACIONES CONOCIDAS
@@ -257,8 +257,6 @@ criptografia telefonica y criptografia de enrolamiento. La suite de IA contiene
   instalacion.
 - No se probaron proveedores reales end-to-end en esta maquina porque no hay
   credenciales desplegadas de OIDC, PostgreSQL, LiveKit ni Meta.
-- Docker Desktop no estaba iniciado durante la validacion final, por lo que la
-  migracion se valido por compilacion pero no contra PostgreSQL local.
 - Las evidencias de video permanecen locales; el portal cloud solo recibe los
   metadatos de eventos definidos por el MVP.
 - La sesion LiveKit publica video sin audio y depende de FFmpeg y del endpoint

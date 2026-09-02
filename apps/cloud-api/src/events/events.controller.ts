@@ -1,6 +1,5 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { CurrentInstallation, Public, Roles } from '../auth/auth.decorators';
-import { InstallationAuthGuard } from '../auth/installation-auth.guard';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { CurrentInstallation, DeviceAuth, Public, Roles } from '../auth/auth.decorators';
 import { CloudEvent, Installation, MembershipRole } from '../entities/entities';
 import { EventListQueryDto, IngestEventDto } from './events.dto';
 import { EventsService } from './events.service';
@@ -10,7 +9,7 @@ export class EventsController {
   constructor(private readonly events: EventsService) {}
 
   @Public()
-  @UseGuards(InstallationAuthGuard)
+  @DeviceAuth()
   @Post('installations/me/events')
   ingest(
     @CurrentInstallation() installation: Installation,
