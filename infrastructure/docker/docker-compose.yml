@@ -10,15 +10,12 @@ services:
       - ../../evidence:/app/evidence
     environment:
       - BACKEND_PORT=3000
+      - BACKEND_HOST=0.0.0.0
       - DATABASE_PATH=/app/data/security-ai.db
       - AI_SERVICE_HOST=ai-service
       - AI_SERVICE_PORT=5000
       - MEDIAMTX_PORT=8554
       - MEDIAMTX_HOST=mediamtx
-      - WHATSAPP_ENABLED=${WHATSAPP_ENABLED:-false}
-      - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN:-}
-      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID:-}
-      - WHATSAPP_RECIPIENT_NUMBER=${WHATSAPP_RECIPIENT_NUMBER:-}
     depends_on:
       - ai-service
     restart: unless-stopped

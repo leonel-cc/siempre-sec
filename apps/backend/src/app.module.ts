@@ -7,7 +7,6 @@ import { EventsModule } from './events/events.module';
 import { PeopleModule } from './people/people.module';
 import { ZonesModule } from './zones/zones.module';
 import { RulesModule } from './rules/rules.module';
-import { NotificationsModule } from './notifications/notifications.module';
 import { SystemModule } from './system/system.module';
 import { WebsocketModule } from './websocket/websocket.module';
 import { SettingsModule } from './settings/settings.module';
@@ -30,7 +29,6 @@ import { CloudModule } from './cloud/cloud.module';
     PeopleModule,
     ZonesModule,
     RulesModule,
-    NotificationsModule,
     SystemModule,
     WebsocketModule,
     SettingsModule,

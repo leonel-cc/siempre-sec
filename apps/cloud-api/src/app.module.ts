@@ -12,6 +12,7 @@ import { EventsModule } from './events/events.module';
 import { HealthModule } from './health/health.module';
 import { MediaModule } from './media/media.module';
 import { InitialCloudSchema1788208000000 } from './database/migrations/1788208000000-initial-cloud-schema';
+import { InstallationPhoneRecipients1788294400000 } from './database/migrations/1788294400000-installation-phone-recipients';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 
@@ -25,7 +26,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
         type: 'postgres' as const,
         url: config.getOrThrow<string>('DATABASE_URL'),
         entities: CLOUD_ENTITIES,
-        migrations: [InitialCloudSchema1788208000000],
+        migrations: [InitialCloudSchema1788208000000, InstallationPhoneRecipients1788294400000],
         migrationsRun: config.get<string>('NODE_ENV') !== 'test',
         synchronize: config.get<string>('NODE_ENV') === 'test',
         logging: false,

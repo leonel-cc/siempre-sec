@@ -1,4 +1,4 @@
-import { randomBytes, scrypt, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'crypto';
 
 export function normalizeE164(input: string): string {
   const normalized = input.trim().replace(/[\s().-]/g, '');
@@ -6,6 +6,16 @@ export function normalizeE164(input: string): string {
     throw new Error('Phone number must include a valid E.164 country code');
   }
   return normalized;
+}
+
+export function maskE164(phoneE164: string): string {
+  const visibleDigits = phoneE164.slice(-4);
+  return `${phoneE164.slice(0, 2)}${'*'.repeat(Math.max(4, phoneE164.length - 6))}${visibleDigits}`;
+}
+
+export function fingerprintPhone(phoneE164: string, secret: string): string {
+  if (!secret) throw new Error('PHONE_FINGERPRINT_SECRET is required');
+  return createHmac('sha256', secret).update(phoneE164, 'utf8').digest('hex');
 }
 
 function derive(code: string, salt: Buffer): Promise<Buffer> {

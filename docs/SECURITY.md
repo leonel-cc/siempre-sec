@@ -10,14 +10,15 @@
 
 ### Storage
 - Camera passwords: Stored in database (encrypted in future versions)
-- WhatsApp API tokens: Environment variables only
+- WhatsApp API tokens: Cloud API environment variables only
 - Never hardcoded in source code
 - Never logged or written to debug output
 
 ### Environment Variables
 ```env
 # NEVER commit these values
-WHATSAPP_API_TOKEN=<your_token>
+WHATSAPP_ACCESS_TOKEN=<your_cloud_token>
+PHONE_FINGERPRINT_SECRET=<at_least_32_random_characters>
 JWT_SECRET=<random_secret>
 ```
 
@@ -57,14 +58,15 @@ The following are always excluded:
 
 ### Video Evidence
 - Stored locally in designated directory
-- Only sent via WhatsApp when user triggers an alert
+- Not uploaded with the current WhatsApp notification flow
 - Auto-deleted based on retention policy
 
 ### WhatsApp Notifications
 - Disabled by default
-- User explicitly configures recipient number
+- Each installation can explicitly verify and enable multiple recipient numbers
 - Only alert-triggering events generate notifications
 - User can disable at any time
+- E.164 values are attached transiently during alert upload and are never persisted in the local outbox, cloud events, deliveries, audits, or logs
 
 ## Input Validation
 

@@ -2,66 +2,29 @@
 
 ## Overview
 
-Security AI sends alert notifications via WhatsApp Business Platform API (official).
+Security AI sends `WEAPON_DETECTED` and `FACE_COVERED` alerts through approved Meta WhatsApp templates. Meta credentials exist only in Cloud API; the local backend does not call Meta directly.
 
-## Setup
-
-### 1. Create WhatsApp Business Account
-
-1. Go to [business.facebook.com](https://business.facebook.com)
-2. Create a WhatsApp Business account
-3. Get a phone number for the business
-
-### 2. Create Meta App
-
-1. Go to [developers.facebook.com](https://developers.facebook.com)
-2. Create a new app
-3. Add WhatsApp product
-4. Get the API token and Phone Number ID
-
-### 3. Configure Environment
+## Cloud configuration
 
 ```env
 WHATSAPP_ENABLED=true
-WHATSAPP_API_TOKEN=your_api_token_here
+PHONE_FINGERPRINT_SECRET=replace-with-at-least-32-random-characters
+WHATSAPP_ACCESS_TOKEN=your_access_token
 WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_API_VERSION=v17.0
-WHATSAPP_RECIPIENT_NUMBER=5491155551234
+WHATSAPP_API_VERSION=v20.0
+WHATSAPP_AUTH_TEMPLATE_NAME=siempre_verification_code
+WHATSAPP_ALERT_TEMPLATE_NAME=siempre_security_alert
+WHATSAPP_TEMPLATE_LANGUAGE=en_US
 ```
 
-### 4. Recipient Verification
+Configure these values in `apps/cloud-api/.env`; no WhatsApp token or fixed recipient belongs in the local backend environment.
 
-The recipient number must be registered with WhatsApp. Send a test message from the WhatsApp Business API dashboard first.
+## Multiple recipients
 
-## Alert Format
+Each installation can verify and enable up to 100 phone numbers. Immediately before uploading an alert event, the local backend obtains the current `{ recipientId, phone }` pairs from the Electron parent. The E.164 values are transient: they are not written to the local outbox, event metadata, cloud event rows, delivery errors, audits, or logs.
 
-```
-🚨 ALERTA DE SEGURIDAD
+Cloud validates each pair against the verified recipient fingerprint for that installation and sends one template per valid enabled recipient. Invalid pairs are omitted and audited without the number. Failed Meta calls leave the local event queued for retry, while successful per-recipient deliveries are not repeated.
 
-Cámara: Patio
-Hora: 02:14:25
-Evento: Persona desconocida en zona restringida
+## Recipient verification
 
-[snapshot image]
-[video clip]
-```
-
-## Rate Limiting
-
-- Cooldown period: 60 seconds (configurable)
-- Same camera + same person = single alert
-- Alert updates replace previous alerts for same tracking session
-
-## Privacy
-
-- WhatsApp notifications are **disabled by default**
-- User must explicitly configure credentials
-- Only alert-triggering events are sent
-- All processing remains local; only notifications leave the device
-- User can disable WhatsApp at any time
-
-## Error Handling
-
-- API failures are logged but don't affect detection pipeline
-- Failed notifications are retried once
-- Dashboard shows notification status (sent/failed)
+Use the installation WhatsApp recipient endpoints documented in `apps/cloud-api/README.md`. Numbers must include `+` and their country code, for example `+14155552671`. Verification stores only a keyed fingerprint and display mask in cloud storage.

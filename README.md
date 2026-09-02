@@ -12,7 +12,7 @@ Intelligent video surveillance system with AI-powered detection, tracking, and r
 - **Zone Management**: Draw monitoring and restricted zones on camera views
 - **Rule Engine**: Configurable alert rules with conditions and schedules
 - **Video Buffer**: Circular buffer with pre/post-event clip generation
-- **Alerts**: WhatsApp Business API notifications with evidence
+- **Alerts**: WhatsApp Business API notifications to verified installation contacts
 - **Dashboard**: Real-time monitoring with system health status
 - **24/7 Service**: Background processing independent of UI
 

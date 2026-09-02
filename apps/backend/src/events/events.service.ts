@@ -1,23 +1,17 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Event } from './entities/event.entity';
 import { CreateEventDto } from '@security-ai/shared';
 import { WebsocketGateway } from '../websocket/websocket.gateway';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CamerasService } from '../cameras/cameras.service';
 import { CloudSyncService } from '../cloud/cloud-sync.service';
 
 @Injectable()
 export class EventsService {
-  private readonly logger = new Logger(EventsService.name);
-
   constructor(
     @InjectRepository(Event)
     private readonly eventRepo: Repository<Event>,
     private readonly websocketGateway: WebsocketGateway,
-    private readonly notificationsService: NotificationsService,
-    private readonly camerasService: CamerasService,
     private readonly cloudSync: CloudSyncService,
     private readonly dataSource: DataSource,
   ) {}
@@ -90,22 +84,6 @@ export class EventsService {
         rule_name: metadata.rule_name || '',
         threat_class: metadata.threat_class,
       });
-
-      let cameraName = 'Desconocida';
-      try {
-        const camera = await this.camerasService.findOne(saved.cameraId);
-        cameraName = camera.name;
-      } catch {}
-
-      if (!this.cloudSync.enabled) this.notificationsService.send({
-        title: saved.eventType === 'WEAPON_DETECTED'
-          ? 'Arma o cuchillo detectado'
-          : 'Rostro cubierto detectado',
-        message: `Confianza: ${(saved.confidence * 100).toFixed(1)}%`,
-        cameraName,
-        timestamp: saved.timestamp || new Date().toISOString(),
-        videoPath: saved.videoPath,
-      }).catch(err => this.logger.error(`Local WhatsApp notification failed: ${err}`));
     }
 
     return saved;

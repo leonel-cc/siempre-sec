@@ -67,6 +67,10 @@ class ApiClient {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
+
+  delete<T = void>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' });
+  }
 }
 
 export const api = new ApiClient();

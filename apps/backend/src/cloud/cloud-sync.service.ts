@@ -7,14 +7,48 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ChildProcess, spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { EntityManager, LessThanOrEqual, Repository } from 'typeorm';
-import { CloudEventInput } from '@security-ai/shared';
+import {
+  CloudEventTransportInput,
+  PersistedCloudEventInput,
+  PhoneRecipientTransport,
+  PhoneRecipientsGetMessage,
+  PhoneRecipientsResultMessage,
+} from '@security-ai/shared';
 import { CamerasService } from '../cameras/cameras.service';
 import { Event } from '../events/entities/event.entity';
 import { CloudOutbox } from './entities/cloud-outbox.entity';
 
 const SYNC_INTERVAL_MS = 5_000;
 const DEVICE_SYNC_INTERVAL_MS = 60_000;
+const PHONE_RECIPIENTS_TIMEOUT_MS = 2_000;
+const MAX_PHONE_RECIPIENTS = 100;
+const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ALERT_EVENT_TYPES = new Set(['WEAPON_DETECTED', 'FACE_COVERED']);
+
+export function validatePhoneRecipients(value: unknown): PhoneRecipientTransport[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Secure phone recipient response must contain a recipients array');
+  }
+  if (value.length > MAX_PHONE_RECIPIENTS) {
+    throw new Error(`Secure phone recipient response exceeds the ${MAX_PHONE_RECIPIENTS} recipient limit`);
+  }
+  return value.map((recipient, index) => {
+    if (!recipient || typeof recipient !== 'object') {
+      throw new Error(`Secure phone recipient at index ${index} is invalid`);
+    }
+    const candidate = recipient as Partial<PhoneRecipientTransport>;
+    if (typeof candidate.recipientId !== 'string' || !UUID_PATTERN.test(candidate.recipientId)) {
+      throw new Error(`Secure phone recipient at index ${index} has an invalid UUID`);
+    }
+    if (typeof candidate.phone !== 'string' || !E164_PATTERN.test(candidate.phone)) {
+      throw new Error(`Secure phone recipient at index ${index} has an invalid E.164 phone number`);
+    }
+    return { recipientId: candidate.recipientId, phone: candidate.phone };
+  });
+}
 
 interface ActivePublisher {
   process: ChildProcess;
@@ -75,7 +109,7 @@ export class CloudSyncService implements OnApplicationBootstrap, OnModuleDestroy
     manager?: EntityManager,
   ): Promise<void> {
     if (!this.enabled) return;
-    const payload: CloudEventInput = {
+    const payload: PersistedCloudEventInput = {
       localEventId: event.id,
       localCameraId: event.cameraId,
       eventType: event.eventType,
@@ -144,7 +178,13 @@ export class CloudSyncService implements OnApplicationBootstrap, OnModuleDestroy
     for (const item of pending) {
       try {
         if (item.kind === 'event') {
-          await this.post('/v1/installations/me/events', JSON.parse(item.payload));
+          const payload = JSON.parse(item.payload) as PersistedCloudEventInput;
+          let transportPayload: CloudEventTransportInput = payload;
+          if (ALERT_EVENT_TYPES.has(payload.eventType)) {
+            const recipients = await this.requestPhoneRecipients();
+            if (recipients.length) transportPayload = { ...payload, recipients };
+          }
+          await this.post('/v1/installations/me/events', transportPayload);
         }
         await this.outbox.remove(item);
       } catch (error) {
@@ -155,6 +195,62 @@ export class CloudSyncService implements OnApplicationBootstrap, OnModuleDestroy
         await this.outbox.save(item);
       }
     }
+  }
+
+  private requestPhoneRecipients(): Promise<PhoneRecipientTransport[]> {
+    const required = process.env.PHONE_RECIPIENTS_IPC_REQUIRED === '1';
+    const send = process.send;
+    if (typeof send !== 'function' || !process.connected) {
+      return required
+        ? Promise.reject(new Error('Secure phone recipient channel is unavailable'))
+        : Promise.resolve([]);
+    }
+
+    const requestId = randomUUID();
+    const request: PhoneRecipientsGetMessage = { type: 'phone-recipients:get', requestId };
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (recipients: PhoneRecipientTransport[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        process.off('message', onMessage);
+        resolve(recipients);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        process.off('message', onMessage);
+        if (required) reject(error);
+        else resolve([]);
+      };
+      const onMessage = (message: unknown) => {
+        if (!message || typeof message !== 'object') return;
+        const result = message as Partial<PhoneRecipientsResultMessage>;
+        if (result.type !== 'phone-recipients:result' || result.requestId !== requestId) return;
+        try {
+          finish(validatePhoneRecipients(result.recipients));
+        } catch (error) {
+          settled = true;
+          clearTimeout(timer);
+          process.off('message', onMessage);
+          reject(error);
+        }
+      };
+      const timer = setTimeout(
+        () => fail(new Error('Secure phone recipient request timed out')),
+        PHONE_RECIPIENTS_TIMEOUT_MS,
+      );
+      process.on('message', onMessage);
+      try {
+        send.call(process, request, (error) => {
+          if (error) fail(new Error(`Secure phone recipient request failed: ${error.message}`));
+        });
+      } catch (error) {
+        fail(new Error(`Secure phone recipient request failed: ${this.errorMessage(error)}`));
+      }
+    });
   }
 
   private async processCommands() {

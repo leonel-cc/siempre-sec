@@ -24,9 +24,9 @@ cuando se pierde Internet. Las URL y credenciales de las camaras permanecen en
 la instalacion local.
 
 Cuando la instalacion esta enrolada, el cloud es el responsable unico de las
-alertas WhatsApp para evitar duplicados. Los fallos de Meta y la ausencia
-temporal de un destinatario verificado conservan el evento en la outbox para
-reintento. El adaptador WhatsApp local solo se usa sin enrolamiento cloud.
+alertas WhatsApp para evitar duplicados. Los fallos de Meta conservan el evento
+en la outbox para reintento y las entregas exitosas no se duplican. Una
+instalacion sin contactos activos sincroniza el evento sin generar mensajes.
 
 
 2. ARQUITECTURA
@@ -39,14 +39,16 @@ Portal web (apps/cloud-web)
 
 Cloud API (apps/cloud-api)
   -> Valida JWT mediante JWKS del proveedor OIDC.
-  -> Persiste organizaciones, usuarios, instalaciones, camaras, eventos,
-     telefonos, comandos y auditoria en PostgreSQL.
+  -> Persiste organizaciones, administradores, instalaciones, camaras, eventos,
+     mascaras de telefonos, comandos y auditoria en PostgreSQL.
   -> Crea Ingress RTMP y tokens de espectadores en LiveKit.
   -> Envia codigos y alertas con Meta WhatsApp Cloud API.
 
 Electron y backend local
   -> Electron solicita un codigo de enrolamiento y cifra las credenciales del
      dispositivo con Electron safeStorage.
+  -> Electron cifra localmente los numeros completos de hasta 100 contactos por
+     instalacion; cloud conserva solamente nombre, mascara y huella HMAC.
   -> El backend recibe CLOUD_API_URL, CLOUD_INSTALLATION_ID y
      CLOUD_INSTALLATION_SECRET desde Electron.
   -> El backend envia heartbeat, camaras y eventos, y consulta comandos.
@@ -251,10 +253,9 @@ criptografia telefonica y criptografia de enrolamiento. La suite de IA contiene
 14. LIMITACIONES CONOCIDAS
 --------------------------
 
-- El agente Windows persistente todavia no esta implementado. Actualmente el
-  backend y el proceso de IA dependen de que Electron permanezca abierto. Por
-  lo tanto el acceso remoto no funciona despues de cerrar Electron o apagar la
-  instalacion.
+- Electron permanece en la bandeja y mantiene backend, IA y MediaMTX activos al
+  cerrar la ventana. El acceso remoto se detiene al elegir Salir completamente
+  o apagar la instalacion.
 - No se probaron proveedores reales end-to-end en esta maquina porque no hay
   credenciales desplegadas de OIDC, PostgreSQL, LiveKit ni Meta.
 - Docker Desktop no estaba iniciado durante la validacion final, por lo que la
