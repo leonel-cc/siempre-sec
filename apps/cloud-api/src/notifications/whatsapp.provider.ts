@@ -7,6 +7,7 @@ export interface WhatsAppSendResult {
 
 export interface WhatsAppProvider {
   readonly enabled: boolean;
+  readonly authenticationEnabled: boolean;
   sendAuthenticationCode(phoneE164: string, code: string): Promise<WhatsAppSendResult>;
   sendAlert(phoneE164: string, eventType: string, cameraName: string): Promise<WhatsAppSendResult>;
 }
@@ -21,9 +22,15 @@ interface MetaResponse {
 @Injectable()
 export class MetaWhatsAppProvider implements WhatsAppProvider {
   readonly enabled: boolean;
+  readonly authenticationEnabled: boolean;
+  private readonly demoTemplateName: string;
 
   constructor(private readonly config: ConfigService) {
     this.enabled = this.config.get<string>('WHATSAPP_ENABLED') === 'true';
+    this.demoTemplateName = this.config.get<string>('WHATSAPP_DEMO_TEMPLATE_NAME')?.trim() ?? '';
+    this.authenticationEnabled = this.enabled
+      && !this.demoTemplateName
+      && Boolean(this.config.get<string>('WHATSAPP_AUTH_TEMPLATE_NAME'));
   }
 
   sendAuthenticationCode(phoneE164: string, code: string): Promise<WhatsAppSendResult> {
@@ -31,6 +38,15 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
   }
 
   sendAlert(phoneE164: string, eventType: string, cameraName: string): Promise<WhatsAppSendResult> {
+    const demoTemplate = this.demoTemplateName;
+    if (demoTemplate) {
+      return this.sendTemplate(
+        phoneE164,
+        demoTemplate,
+        [],
+        demoTemplate === 'hello_world' ? 'en_US' : undefined,
+      );
+    }
     return this.sendTemplate(phoneE164, this.config.getOrThrow('WHATSAPP_ALERT_TEMPLATE_NAME'), [
       eventType,
       cameraName,
@@ -41,6 +57,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     phoneE164: string,
     templateName: string,
     bodyParameters: string[],
+    languageOverride?: string,
   ): Promise<WhatsAppSendResult> {
     if (!this.enabled) {
       throw new ServiceUnavailableException('WhatsApp provider is disabled');
@@ -48,7 +65,7 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
     const token = this.config.getOrThrow<string>('WHATSAPP_ACCESS_TOKEN');
     const phoneNumberId = this.config.getOrThrow<string>('WHATSAPP_PHONE_NUMBER_ID');
     const version = this.config.get<string>('WHATSAPP_API_VERSION', 'v20.0');
-    const language = this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE', 'en_US');
+    const language = languageOverride ?? this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE', 'en_US');
     const response = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -59,12 +76,12 @@ export class MetaWhatsAppProvider implements WhatsAppProvider {
         template: {
           name: templateName,
           language: { code: language },
-          components: [
+          ...(bodyParameters.length ? { components: [
             {
               type: 'body',
               parameters: bodyParameters.map((text) => ({ type: 'text', text })),
             },
-          ],
+          ] } : {}),
         },
       }),
       signal: AbortSignal.timeout(8_000),

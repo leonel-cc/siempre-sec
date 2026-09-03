@@ -17,6 +17,7 @@ The API is served under `/v1`. Schema synchronization is used only for tests; ve
 - Pending email invitations are linked only when the OIDC token supplies the matching email with `email_verified=true`.
 - LiveKit URL, API key, and secret are required to create a remote view session. The API returns `503` if they are absent.
 - Production requires WhatsApp to be enabled and fully configured. Meta Cloud API credentials and approved authentication/alert template names are required whenever it is enabled.
+- Development may set `WHATSAPP_DEMO_TEMPLATE_NAME=hello_world` instead of custom templates. Alert sends then omit template components and OTP codes are shown only in the local Electron UI. Demo mode is rejected outside `NODE_ENV=development`.
 - `PHONE_FINGERPRINT_SECRET` must be an application-wide random secret of at least 32 characters in production or whenever WhatsApp is enabled. Rotating it invalidates phone matching and requires recipients to be verified again.
 - With WhatsApp disabled, non-production verification requests return `developmentCode` and alert dispatch is omitted without creating failed deliveries. Production validation requires the provider to be enabled.
 - Invitation persistence is implemented, but invitation email delivery is deliberately an adapter responsibility and is not included.
@@ -38,6 +39,7 @@ All routes are under `/v1`. Device routes require `Authorization: Device <instal
 - `POST /installations/me/whatsapp-recipients/verification/request` accepts `{ "contactName": "Night security", "phone": "+14155552671" }`. The challenge persists the contact name, mask, and fingerprint, never the complete number. It returns `challengeId`, `contactName`, `mask`, and expiry; only development with WhatsApp disabled also returns `developmentCode`.
 - `POST /installations/me/whatsapp-recipients/verification/confirm` accepts `{ "challengeId", "phone", "code" }`. Repeating the transient phone binds confirmation to the original HMAC fingerprint. It returns `recipientId`, `contactName`, `mask`, `enabled`, and `verifiedAt`.
 - `POST /installations/me/whatsapp-recipients/:recipientId/activate` and `/deactivate` toggle delivery eligibility; `DELETE` removes it.
+- `POST /installations/me/whatsapp-recipients/:recipientId/test` accepts the transient `{ "phone": "+14155552671" }` and sends `DEMO_ALERT` through the configured Meta alert template after validating installation, fingerprint, verification, and enabled state. It is rate-limited to three requests per minute.
 
 Organization management routes require an OIDC bearer token and an `OWNER` or `ADMIN` membership:
 

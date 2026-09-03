@@ -28,6 +28,7 @@ import {
   getPhoneRecipientsForDispatch,
   listPhoneRecipients,
   requestPhoneVerification,
+  sendTestPhoneAlert,
   setPhoneRecipientEnabled,
 } from './phone-recipients';
 
@@ -595,6 +596,11 @@ app.whenReady().then(async () => {
     assertTrustedRenderer(event.sender);
     if (typeof recipientId !== 'string' || !UUID.test(recipientId)) throw new Error('Invalid recipient');
     return deletePhoneRecipient(recipientId);
+  });
+  ipcMain.handle('phone-recipients:test', (event, recipientId: unknown) => {
+    assertTrustedRenderer(event.sender);
+    if (typeof recipientId !== 'string' || !UUID.test(recipientId)) throw new Error('Invalid recipient');
+    return sendTestPhoneAlert(recipientId);
   });
 
   ipcMain.handle('desktop-preferences:get', () => ({ ...desktopPreferences }));

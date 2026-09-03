@@ -21,6 +21,7 @@ declare global {
       requestVerification: (contactName: string, phone: string) => Promise<PhoneRecipientView[]>;
       confirmVerification: (challengeId: string, code: string) => Promise<PhoneRecipientView[]>;
       setEnabled: (recipientId: string, enabled: boolean) => Promise<PhoneRecipientView[]>;
+      sendTest: (recipientId: string) => Promise<{ sent: true; messageId: string | null }>;
       delete: (recipientId: string) => Promise<PhoneRecipientView[]>;
     };
     getDesktopPreferences: () => Promise<DesktopPreferences>;

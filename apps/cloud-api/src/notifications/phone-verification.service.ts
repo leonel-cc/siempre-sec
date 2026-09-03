@@ -13,7 +13,7 @@ import { DataSource, Repository } from 'typeorm';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser } from '../auth/auth.types';
 import { Installation, PhoneRecipient, VerificationChallenge } from '../entities/entities';
-import { ConfirmPhoneVerificationDto, RequestPhoneVerificationDto } from './phone.dto';
+import { ConfirmPhoneVerificationDto, RequestPhoneVerificationDto, TestPhoneRecipientDto } from './phone.dto';
 import {
   fingerprintPhone,
   hashVerificationCode,
@@ -90,8 +90,13 @@ export class PhoneVerificationService {
     }));
 
     let developmentCode: string | undefined;
-    if (this.whatsapp.enabled) await this.whatsapp.sendAuthenticationCode(phoneE164, code);
-    else developmentCode = code;
+    if (this.whatsapp.authenticationEnabled) {
+      await this.whatsapp.sendAuthenticationCode(phoneE164, code);
+    } else if (process.env.NODE_ENV === 'development') {
+      developmentCode = code;
+    } else {
+      throw new ServiceUnavailableException('WhatsApp authentication template is required');
+    }
 
     await this.audit.record({
       organizationId: installation.organizationId,
@@ -192,6 +197,38 @@ export class PhoneVerificationService {
     const recipient = await this.findInstallationRecipient(installation.id, recipientId);
     await this.recipients.delete(recipient.id);
     await this.auditRecipient(recipient, 'phone.deleted', null, installation.id);
+  }
+
+  async sendTestByInstallation(
+    installation: Installation,
+    recipientId: string,
+    dto: TestPhoneRecipientDto,
+  ) {
+    this.assertProviderAvailable();
+    const phoneE164 = this.readPhone(dto.phone);
+    const recipient = await this.recipients.findOneBy({
+      id: recipientId,
+      installationId: installation.id,
+      phoneFingerprint: fingerprintPhone(phoneE164, this.fingerprintSecret),
+      enabled: true,
+      requiresReverification: false,
+    });
+    if (!recipient?.verifiedAt) throw new NotFoundException('Eligible phone recipient not found');
+
+    const result = await this.whatsapp.sendAlert(
+      phoneE164,
+      'DEMO_ALERT',
+      installation.name?.trim() || 'Security AI Demo',
+    );
+    await this.audit.record({
+      organizationId: installation.organizationId,
+      actorInstallationId: installation.id,
+      action: 'phone.test_alert_sent',
+      targetType: 'phoneRecipient',
+      targetId: recipient.id,
+      metadata: { phoneMask: recipient.phoneMask },
+    });
+    return { sent: true, recipientId: recipient.id, messageId: result.messageId };
   }
 
   async listForOrganization(organizationId: string): Promise<PhoneRecipientView[]> {

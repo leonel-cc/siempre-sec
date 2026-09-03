@@ -1,6 +1,19 @@
 SIEMPRE SECURITY AI - CONTEXTO Y PROCEDIMIENTOS DE CONTINUIDAD
 ==============================================================
 
+ULTIMA ACTUALIZACION: 2026-09-03
+
+REGLA DE MANTENIMIENTO
+----------------------
+
+Este documento es la fuente canonica de contexto funcional y tecnico para el
+acceso remoto, ubicaciones, permisos, contactos, alertas y streaming. Todo
+cambio relacionado con esas areas debe actualizar tambien este archivo. Debe
+distinguirse siempre entre funcionalidad IMPLEMENTADA y arquitectura OBJETIVO;
+no declarar como implementado un comportamiento que no haya sido desarrollado
+y verificado. AGENTS.md repite esta obligacion para los agentes que trabajen en
+el repositorio.
+
 PROPOSITO DEL DOCUMENTO
 -----------------------
 
@@ -12,8 +25,9 @@ persona que continue el trabajo sin reconstruir las decisiones previas.
 1. ESTADO GENERAL
 -----------------
 
-- Repositorio: C:\Dev\siempre-sec
+- Repositorio: C:\develop\security-ai
 - Rama de trabajo: staging
+- Commit de referencia al actualizar este documento: 9872027
 - La rama develop fue mergeada a staging mediante un merge commit normal.
 - El portal cloud tiene una primera vista funcional en desarrollo.
 - PostgreSQL local se ejecuta con Docker Desktop.
@@ -247,8 +261,8 @@ PowerShell -SkipHttpErrorCheck:
 - Los envios WhatsApp usan lease y reintentos para evitar perdida silenciosa.
 
 
-10. WHATSAPP
-------------
+10. WHATSAPP - ESTADO IMPLEMENTADO
+----------------------------------
 
 En desarrollo WHATSAPP_ENABLED=false, por lo que no se llama a Meta.
 
@@ -260,8 +274,28 @@ contactos desde el portal.
 
 Cuando la instalacion esta enrolada, el cloud es el propietario de las alertas
 para evitar duplicados. Si Meta falla, la API devuelve error temporal y la
-outbox local vuelve a intentar. Si cloud no esta configurado, se conserva el
-adaptador WhatsApp local existente.
+outbox local vuelve a intentar. El adaptador WhatsApp directo del backend local
+fue eliminado; las credenciales de Meta pertenecen solamente a Cloud API.
+
+La demo del modelo actual incluye el endpoint Device autenticado
+POST /installations/me/whatsapp-recipients/:recipientId/test y el boton
+"Enviar alerta de prueba" en la pagina independiente Alertas de Electron. Esta
+pagina permite registrar personas, confirmar OTP, activar, desactivar, probar y
+eliminar destinatarios. El formulario duplicado fue retirado de Configuracion.
+Electron entrega el E.164 local de forma transitoria; Cloud valida instalacion,
+destinatario, fingerprint, verificacion y estado antes de enviar DEMO_ALERT
+mediante la plantilla aprobada. El endpoint admite tres solicitudes por minuto.
+Esto no implementa todavia el modelo objetivo de Location ni los enlaces
+temporales de la seccion 18.
+
+Mientras las plantillas propias no esten aprobadas, la demo puede configurar
+WHATSAPP_DEMO_TEMPLATE_NAME=hello_world con NODE_ENV=development. En ese modo,
+las alertas usan la plantilla hello_world sin componentes y el codigo OTP se
+muestra solamente en la interfaz Electron local. La plantilla hello_world fuerza
+el idioma en_US exigido por Meta. Cloud API rechaza este modo
+fuera de development; produccion sigue exigiendo plantillas OTP, alerta y un
+PHONE_FINGERPRINT_SECRET independiente. La demo local puede usar el secreto de
+fingerprint incorporado para desarrollo, que nunca debe desplegarse.
 
 Para produccion hacen falta:
 
@@ -344,9 +378,8 @@ error de compilacion.
 - Trabajar sobre staging salvo instruccion contraria.
 - No usar force-push ni rebase destructivo.
 - No revertir cambios ajenos en un worktree sucio.
-- apps/backend/src/evidence/evidence.service.ts era un archivo local no rastreado
-  anterior a este trabajo. No incluirlo ni modificarlo sin revisarlo con el
-  usuario.
+- apps/backend/src/evidence/evidence.service.ts esta versionado y forma parte
+  del soporte de evidencias incorporado en staging.
 - Los .env locales estan ignorados y no deben subirse.
 - Los .env.example si deben mantenerse actualizados.
 
@@ -379,11 +412,425 @@ error de compilacion.
 
 1. Agregar pruebas de integracion PostgreSQL para migraciones y guards.
 2. Automatizar un smoke test API que cree y liste una organizacion.
-3. Agregar pruebas end-to-end para destinatarios WhatsApp por instalacion.
-4. Implementar STOP_LIVE explicito ademas del TTL.
-5. Agregar observabilidad de outbox, comandos, Ingress y WhatsApp.
-6. Dividir el bundle del portal con carga diferida de LiveKit.
-7. Resolver las vulnerabilidades npm mediante upgrades mayores controlados.
-8. Crear configuracion IaC para los proveedores administrados.
+3. Implementar el modelo objetivo de ubicaciones, contactos y permisos descrito
+   en la seccion 18.
+4. Agregar pruebas end-to-end para destinatarios WhatsApp por ubicacion.
+5. Implementar STOP_LIVE explicito ademas del TTL.
+6. Agregar observabilidad de outbox, comandos, Ingress y WhatsApp.
+7. Dividir el bundle del portal con carga diferida de LiveKit.
+8. Resolver las vulnerabilidades npm mediante upgrades mayores controlados.
+9. Crear configuracion IaC para los proveedores administrados.
+
+
+18. ARQUITECTURA OBJETIVO APROBADA
+----------------------------------
+
+ESTADO: DISENO APROBADO, PENDIENTE DE IMPLEMENTACION.
+
+Esta seccion define el comportamiento que debe guiar las proximas migraciones,
+APIs e interfaces. No describe necesariamente el comportamiento vigente.
+
+18.1 JERARQUIA DEL DOMINIO
+
+  ORGANIZATION
+    |
+    +-- LOCATION: Casa
+    |     |
+    |     +-- INSTALLATION: agente o servidor local
+    |     |     |
+    |     |     +-- CAMERA 1
+    |     |     +-- CAMERA 2
+    |     |     +-- CAMERA 3
+    |     |     +-- CAMERA 4
+    |     |
+    |     +-- ZONE opcional: interior, exterior, patio
+    |
+    +-- LOCATION: Oficina
+          |
+          +-- INSTALLATION: agente o servidor local
+          |     |
+          |     +-- CAMERA 1
+          |     +-- CAMERA 2
+          |
+          +-- ZONE opcional: recepcion, deposito
+
+Organization representa al cliente y es el limite de tenancy. No debe usarse
+como sinonimo de Casa u Oficina. Location representa un lugar fisico estable.
+Installation representa el equipo enrolado que ejecuta los servicios locales.
+Separar Location de Installation conserva permisos y contactos si se reemplaza
+o se vuelve a enrolar el equipo de una ubicacion.
+
+Una Location puede contener una o mas Installation. Cada Camera pertenece a
+una Installation y, opcionalmente, a una Zone de la misma Location. En la
+primera implementacion, los permisos se concederan principalmente por Location;
+las excepciones por Camera quedan disponibles para usuarios registrados.
+
+18.2 USUARIOS, ROLES Y ALCANCE
+
+El modelo de autorizacion debe combinar:
+
+- RBAC: el rol determina que acciones puede realizar una persona.
+- Acceso por recurso: las asignaciones determinan en que Location o Camera
+  puede realizar esas acciones.
+
+Roles aprobados:
+
+- OWNER: control total, propiedad de la organizacion, administradores, usuarios,
+  contactos, ubicaciones, instalaciones, camaras, alertas y auditoria.
+- ADMIN: administra usuarios, roles no propietarios, contactos, ubicaciones,
+  instalaciones, camaras y alertas; puede ver todo dentro de la organizacion.
+- INSTALLER: instala y configura las instalaciones y camaras asignadas. Puede
+  abrir sus streams para probarlos, pero no administra usuarios ni contactos.
+- OPERATOR: ve streams, eventos y evidencias asignados y puede atender alertas,
+  sin modificar configuracion critica.
+- VIEWER: acceso de solo lectura al video en vivo de Locations o Cameras
+  asignadas.
+
+OWNER y ADMIN tienen alcance global dentro de su Organization. INSTALLER,
+OPERATOR y VIEWER deben tener asignaciones explicitas por Location y, cuando se
+necesite una excepcion, por Camera.
+
+Permisos internos recomendados:
+
+- organization.manage
+- users.manage
+- contacts.manage
+- installations.manage
+- cameras.install
+- cameras.configure
+- cameras.view_live
+- events.view
+- evidence.view
+- alerts.acknowledge
+- audit.view
+
+No usar solamente una jerarquia numerica de roles: INSTALLER y OPERATOR tienen
+capacidades distintas. La interfaz puede ocultar controles, pero Cloud API es
+siempre la autoridad y debe validar cada operacion.
+
+Entidades objetivo para usuarios:
+
+  MEMBERSHIP
+    organization_id
+    user_id
+    role
+
+  MEMBER_LOCATION_ACCESS
+    membership_id
+    location_id
+    can_view_live
+    can_view_evidence
+    can_configure
+
+  MEMBER_CAMERA_ACCESS
+    membership_id
+    camera_id
+    permisos especificos o excepciones
+
+18.3 CONTACTOS DE ALERTA
+
+Un Contact es un telefono verificado que recibe alertas. No obtiene una cuenta
+administrativa permanente por el solo hecho de ser contacto. Si la misma
+persona tambien posee una cuenta OIDC, Contact puede vincularse opcionalmente a
+User mediante linked_user_id.
+
+Los contactos deben poder registrarse y administrarse tanto desde Electron como
+desde la aplicacion web. Cloud API y PostgreSQL son la fuente de verdad comun;
+Electron no mantiene un catalogo independiente. Ambos clientes usan los mismos
+identificadores, version de registro, estado de verificacion y asignaciones.
+
+Desde la web, OWNER y ADMIN pueden administrar todos los Contacts de la
+Organization, definir el contacto principal y asignar una o varias Locations.
+Desde Electron, una Installation autenticada puede listar los contactos de su
+Location, registrar uno nuevo para esa Location y modificar su participacion
+local. El dispositivo no puede convertir contactos en principales, asignarlos a
+otras Locations ni obtener permisos globales usando solamente Device Auth.
+
+La verificacion OTP se ejecuta siempre en Cloud API, sin importar que cliente
+inicio el alta. Los numeros completos deben persistirse cifrados en PostgreSQL;
+las interfaces muestran solamente phone_mask despues de capturarlos. La clave
+de cifrado permanece fuera de la base de datos. Debe mantenerse una huella HMAC
+separada para detectar duplicados sin descifrar numeros.
+
+Electron puede conservar una cache local cifrada para tolerar desconexiones y
+mostrar el ultimo estado conocido, pero esa cache no decide autorizacion ni
+destinatarios. Al recuperar conectividad debe reconciliarse por id y updated_at
+con Cloud. Las mutaciones requieren una version esperada para detectar cambios
+concurrentes y evitar que una pantalla sobrescriba silenciosamente a la otra.
+
+Entidad objetivo:
+
+  CONTACT
+    id
+    organization_id
+    linked_user_id opcional
+    contact_name
+    encrypted_phone
+    phone_mask
+    phone_fingerprint
+    is_primary
+    enabled
+    verified_at
+
+Debe existir exactamente un contacto principal verificado por Organization.
+Este contacto corresponde al administrador principal, recibe alertas de todas
+las Locations y no puede desactivarse o eliminarse sin verificar antes un
+reemplazo.
+
+Los contactos adicionales se registran una sola vez y pueden asignarse a varias
+Locations mediante una relacion many-to-many:
+
+  CONTACT_LOCATION_ACCESS
+    contact_id
+    location_id
+    receives_alerts
+    can_view_live
+    can_view_evidence
+    updated_at
+
+Ejemplo de aislamiento:
+
+  Contacto principal   -> Casa + Oficina
+  Familiar             -> Casa
+  Guardia residencial  -> Casa
+  Encargado             -> Oficina
+  Guardia oficina      -> Oficina
+
+Un contacto asignado solamente a Casa no debe poder listar, solicitar tokens ni
+abrir streams de Oficina.
+
+18.4 SELECCION DE DESTINATARIOS
+
+Cada Event debe identificar organization_id, location_id, installation_id y,
+cuando corresponda, camera_id. Para una alerta de Casa, Cloud API selecciona:
+
+1. El contacto principal habilitado de la Organization.
+2. Los contactos adicionales verificados y habilitados con una asignacion a
+   Casa donde receives_alerts sea true.
+3. Una sola entrega por Event y Contact, aun si existen asignaciones repetidas.
+
+Cloud API descifra el E.164 solamente durante el envio a Meta. El numero
+completo no debe aparecer en eventos, enlaces, auditoria, logs ni errores. Las
+entregas guardan contact_id y phone_mask y conservan idempotencia y reintentos.
+
+Las alertas objetivo incluyen:
+
+- amenazas detectadas por las reglas de IA;
+- instalacion desconectada y recuperada;
+- camara desconectada y recuperada.
+
+Las evidencias originales se conservan en la base y carpeta de evidencia local
+de cada Installation. Las credenciales RTSP, snapshots y clips no forman parte
+del catalogo permanente global por defecto.
+
+Cuando una alerta deba incluir imagen o video en WhatsApp, Cloud actua como
+relay temporal porque el token de Meta no puede distribuirse a Electron y Meta
+no puede leer archivos privados del equipo local:
+
+1. El evento y su referencia de evidencia se guardan primero en SQLite local.
+2. La outbox conserva una referencia local y hash del archivo, no el binario.
+3. Cloud autoriza una carga vinculada al Event e Installation autenticados.
+4. La Installation transmite el JPG o MP4 por HTTPS con limite de tamano y
+   hash de integridad.
+5. Cloud conserva el objeto en almacenamiento privado solamente durante el
+   envio y sus reintentos.
+6. Cloud carga el medio a Meta, obtiene media_id y envia la plantilla aprobada
+   con header IMAGE o VIDEO.
+7. Tras la aceptacion de Meta se elimina el objeto temporal; un proceso de TTL
+   elimina tambien cargas fallidas o abandonadas.
+
+PostgreSQL conserva solamente metadatos operativos de la carga: event_id,
+installation_id, tipo MIME, tamano, hash, estado, intentos y expires_at. No se
+guardan binarios en PostgreSQL ni se generan URLs publicas permanentes. El
+objeto temporal usa cifrado en reposo y acceso privado. Los reintentos deben ser
+idempotentes por Event, Contact y tipo de evidencia.
+
+El relay temporal usara una interfaz S3-compatible. Desarrollo usara MinIO y
+produccion podra usar Amazon S3, Cloudflare R2 u otro proveedor compatible sin
+cambiar el contrato de aplicacion. El bucket debe ser privado, bloquear acceso
+publico, cifrar objetos y aplicar una regla de lifecycle adicional de 24 horas
+como defensa ante fallos del proceso de limpieza.
+
+La plantilla hello_world de la demo no admite evidencia ni variables. Para
+adjuntar medios se necesita una plantilla Meta aprobada con header IMAGE o
+VIDEO. Hasta entonces hello_world demuestra solamente la entrega del canal.
+
+Para amenazas con evidencia se enviaran dos mensajes coordinados:
+
+1. Una alerta inmediata con el snapshot JPG en una plantilla con header IMAGE.
+2. Un seguimiento con el clip MP4 cuando termine de generarse, usando otra
+   plantilla con header VIDEO.
+
+Meta admite un solo tipo de media de encabezado por plantilla, por lo que imagen
+y video requieren plantillas separadas. Ambos envios deben compartir Event y
+Contact para trazabilidad e idempotencia. La copia privada temporal en Cloud
+vence como maximo 24 horas despues de su creacion; si Meta no acepta el archivo
+en ese periodo, se elimina y la entrega queda registrada como expirada.
+
+Una desconexion debe notificarse una sola vez por transicion. Si cae una
+Installation completa, no deben enviarse ademas alertas individuales por todas
+sus Cameras. El estado recuperado tambien debe notificarse. Los umbrales y
+leases deben persistirse para funcionar correctamente con varias replicas de
+Cloud API.
+
+18.5 ENLACES WHATSAPP Y ACCESO TEMPORAL
+
+Cada entrega WhatsApp incluye un enlace distinto para el Contact destinatario.
+El enlace concede acceso solamente a las Cameras habilitadas de la Location que
+genero la alerta.
+
+Flujo objetivo:
+
+  CAMERA -> EVENT -> ALERT -> CONTACT
+                              |
+                              +-- enlace opaco individual
+                                      |
+                                      +-- canje atomico
+                                              |
+                                              +-- CONTACT_SESSION
+                                                      |
+                                                      +-- Cameras de Location
+
+El enlace usa un secreto aleatorio de alta entropia y Cloud guarda solamente
+su hash. El canje debe ser atomico y de un solo uso. El resultado se mantiene
+en una cookie Secure, HttpOnly y con una politica SameSite adecuada. Los
+previews o scanners de WhatsApp no deben consumir el enlace mediante un GET;
+el canje real debe requerir una accion explicita del navegador.
+
+La sesion no tiene un limite fijo mientras el contacto permanezca viendo el
+portal. La pagina envia heartbeats y Cloud renueva tokens LiveKit cortos. Al
+cerrar la pagina o perder conexion, la sesion vence tras un periodo breve de
+inactividad, inicialmente dos minutos. El cierre mediante beforeunload es solo
+una optimizacion; el timeout de heartbeat es la garantia real.
+
+Entidades objetivo:
+
+  ALERT_ACCESS_TOKEN
+    alert_delivery_id
+    token_hash
+    consumed_at
+
+  CONTACT_SESSION
+    contact_id
+    location_id
+    last_heartbeat_at
+    revoked_at
+
+Desactivar el Contact, quitar su asignacion o revocar la alerta debe invalidar
+la sesion y evitar renovaciones.
+
+18.6 AUTORIZACION DE STREAMING
+
+Antes de emitir o renovar un token LiveKit, Cloud API debe:
+
+1. Identificar al User OIDC o Contact temporal que realiza la solicitud.
+2. Validar Organization y estado de la membresia o sesion.
+3. Comprobar cameras.view_live.
+4. Validar acceso a la Location o Camera solicitada.
+5. Confirmar que Camera e Installation estan habilitadas y en linea.
+6. Emitir un token limitado a la sala exacta, con canSubscribe=true,
+   canPublish=false y canPublishData=false.
+7. Auditar identidad, sesion, Location, Camera, inicio y finalizacion.
+
+La identidad LiveKit debe ser unica por sesion, por ejemplo:
+
+  user_<userId>_session_<sessionId>
+  contact_<contactId>_session_<sessionId>
+
+No basta con proteger POST /view-sessions. Los endpoints que listan Locations,
+Cameras, Events y Evidence deben filtrar tambien los recursos no autorizados.
+Un usuario o contacto de Casa no debe poder descubrir identificadores o
+metadatos de Oficina.
+
+18.7 MIGRACION DESDE EL MODELO ACTUAL
+
+El modelo implementado actualmente asocia PhoneRecipient directamente a una
+Installation y conserva el E.164 cifrado solamente en Electron. Cloud no puede
+reconstruir esos numeros a partir de phone_mask o phone_fingerprint.
+
+La migracion objetivo debe:
+
+1. Crear Location y asociar las Installation existentes a una Location inicial.
+2. Crear Contact y ContactLocationAccess.
+3. Conservar nombre, mascara, huella y asociacion conocida de contactos.
+4. Marcar contactos existentes como pendientes de reverificacion central.
+5. Solicitar el alta y verificacion del contacto principal.
+6. Retirar el almacen local de telefonos y el IPC de destinatarios solamente
+   despues de completar la transicion y verificar los datos centrales.
+7. Modificar la ingesta para que los eventos no transporten telefonos ni listas
+   de destinatarios; Cloud debe resolverlos desde PostgreSQL.
+8. Exponer contratos equivalentes para gestion web autenticada por User y
+   gestion local limitada autenticada por Installation.
+9. Reemplazar el almacen Electron como fuente de verdad por una cache cifrada y
+   reconciliable, sin eliminarla hasta verificar la transicion.
+
+18.8 CRITERIOS DE VERIFICACION
+
+- OWNER y ADMIN pueden administrar todas las Locations, Cameras y Contacts.
+- VIEWER de Casa no puede listar ni abrir Cameras de Oficina.
+- INSTALLER puede configurar y probar solamente recursos asignados.
+- El contacto principal recibe alertas de cualquier Location.
+- Un contacto adicional recibe alertas solamente de Locations asignadas.
+- Un enlace de Casa nunca genera un token para una Camera de Oficina.
+- Revocar permisos impide renovar la sesion y emitir nuevos tokens.
+- Los E.164 permanecen cifrados y no aparecen en logs, eventos o auditoria.
+- Alertas y enlaces son idempotentes por Event y Contact.
+- Desconexion y recuperacion no generan tormentas de mensajes.
+- Las migraciones se prueban en PostgreSQL real con up y down documentados.
+- La evidencia permanece local y cualquier copia Cloud usada para WhatsApp se
+  elimina despues de la entrega o al vencer su TTL.
+
+
+19. HISTORIAL DE DECISIONES FUNCIONALES
+---------------------------------------
+
+2026-09-03
+
+- Se agrego al modelo implementado actual un envio de alerta de prueba desde
+  Electron para validar la configuracion real de Meta antes de la demo.
+- Se aprobo un modo de demo hello_world limitado a development mientras no
+  existan plantillas propias aprobadas; no representa el formato final de las
+  alertas.
+- Se creo una pagina Alertas separada en Electron para administrar personas y
+  destinatarios sin ocultarlos dentro de Configuracion.
+- Se verificaron token y Phone Number ID contra Graph API y Meta acepto un envio
+  real hello_world. No se guardaron el token ni el numero completo en Git.
+- Se aprobo que Contacts puedan registrarse y administrarse desde Electron y
+  web usando Cloud/PostgreSQL como fuente de verdad compartida.
+- Electron administrara solamente contactos y asignaciones de su Location;
+  OWNER y ADMIN conservaran la gestion global desde web.
+- La sincronizacion entre ambas interfaces usara ids estables, updated_at y
+  control de concurrencia; la cache local cifrada no otorgara autorizacion.
+- Se aprobo almacenamiento local permanente de snapshots y clips. Cloud se
+  usara solamente como relay privado temporal cuando Meta necesite recibir el
+  archivo; no se almacenaran binarios de evidencia en PostgreSQL.
+- El envio de evidencia requerira plantillas Meta con header IMAGE o VIDEO;
+  hello_world no permite adjuntos.
+- Se mantiene Organization como limite global del cliente.
+- Se aprueba una entidad Location para Casa, Oficina y otros lugares fisicos.
+- Installation representa el agente o servidor local, no el lugar fisico.
+- OWNER y ADMIN administran toda la organizacion.
+- Se agregara INSTALLER con acceso de configuracion y prueba limitado.
+- OPERATOR y VIEWER tendran acceso por Location y opcionalmente por Camera.
+- El telefono principal recibe alertas de todas las Locations.
+- Contactos adicionales pueden pertenecer a varias Locations.
+- Los telefonos se almacenaran cifrados en PostgreSQL y se mostraran
+  enmascarados.
+- Las alertas incluiran amenazas, desconexiones y recuperaciones.
+- Cada Contact recibira un enlace temporal individual para las Cameras de la
+  Location alertada.
+- La sesion temporal se mantendra mientras exista heartbeat del navegador y
+  expirara despues de un periodo breve de inactividad.
+- Todo cambio posterior a estas decisiones debe actualizar esta seccion y las
+  secciones tecnicas afectadas.
+- Se decidio enviar snapshot JPG inmediatamente y clip MP4 al finalizar su
+  generacion, mediante dos plantillas Meta con headers IMAGE y VIDEO.
+- El relay privado de evidencia en Cloud tendra una retencion maxima de 24
+  horas para reintentos y luego eliminara el objeto aunque la entrega falle.
+- Se eligio almacenamiento temporal S3-compatible: MinIO en desarrollo y S3,
+  R2 o equivalente en produccion, siempre con bucket privado y lifecycle.
+- La implementacion multimedia esperara a contar con los nombres y componentes
+  exactos de las plantillas IMAGE y VIDEO aprobadas. Hasta entonces la demo
+  hello_world valida solamente entrega de texto predefinido.
 
 FIN DEL CONTEXTO.

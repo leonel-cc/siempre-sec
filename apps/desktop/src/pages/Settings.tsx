@@ -12,12 +12,6 @@ export default function Settings() {
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudError, setCloudError] = useState('');
   const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences | null>(null);
-  const [phoneRecipients, setPhoneRecipients] = useState<PhoneRecipientView[]>([]);
-  const [contactName, setContactName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [verificationCodes, setVerificationCodes] = useState<Record<string, string>>({});
-  const [phoneBusy, setPhoneBusy] = useState(false);
-  const [phoneError, setPhoneError] = useState('');
 
   useEffect(() => {
     api.settings.getAll().then(setConfig).catch(console.error);
@@ -26,11 +20,6 @@ export default function Settings() {
     electronAPI.cloudEnrollment.status().then(status => {
       setCloudStatus(status);
       if (status.cloudUrl) setCloudUrl(status.cloudUrl);
-      if (status.state === 'ENROLLED') {
-        electronAPI.phoneRecipients.list().then(setPhoneRecipients).catch(error => {
-          setPhoneError(error instanceof Error ? error.message : String(error));
-        });
-      }
     }).catch(console.error);
     electronAPI.getDesktopPreferences()
       .then(setDesktopPreferences)
@@ -57,7 +46,6 @@ export default function Settings() {
     try {
       const status = await window.electronAPI.cloudEnrollment.exchange();
       setCloudStatus(status);
-      setPhoneRecipients(await window.electronAPI.phoneRecipients.list());
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -71,77 +59,10 @@ export default function Settings() {
     setCloudError('');
     try {
       setCloudStatus(await window.electronAPI.cloudEnrollment.clear());
-      setPhoneRecipients([]);
-      setContactName('');
-      setPhoneNumber('');
-      setVerificationCodes({});
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : String(error));
     } finally {
       setCloudBusy(false);
-    }
-  }
-
-  async function requestPhoneCode() {
-    if (!window.electronAPI) return;
-    setPhoneBusy(true);
-    setPhoneError('');
-    try {
-      setPhoneRecipients(await window.electronAPI.phoneRecipients.requestVerification(contactName, phoneNumber));
-      setContactName('');
-      setPhoneNumber('');
-    } catch (error) {
-      setPhoneError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPhoneBusy(false);
-    }
-  }
-
-  async function confirmPhoneCode(challengeId: string) {
-    if (!window.electronAPI) return;
-    setPhoneBusy(true);
-    setPhoneError('');
-    try {
-      const recipients = await window.electronAPI.phoneRecipients.confirmVerification(
-        challengeId,
-        verificationCodes[challengeId] ?? '',
-      );
-      setPhoneRecipients(recipients);
-      setVerificationCodes(current => {
-        const next = { ...current };
-        delete next[challengeId];
-        return next;
-      });
-    } catch (error) {
-      setPhoneError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPhoneBusy(false);
-    }
-  }
-
-  async function setRecipientEnabled(recipientId: string, enabled: boolean) {
-    if (!window.electronAPI) return;
-    setPhoneBusy(true);
-    setPhoneError('');
-    try {
-      setPhoneRecipients(await window.electronAPI.phoneRecipients.setEnabled(recipientId, enabled));
-    } catch (error) {
-      setPhoneError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPhoneBusy(false);
-    }
-  }
-
-  async function removeRecipient(recipientId: string) {
-    if (!window.electronAPI || !window.confirm('¿Eliminar este contacto de alerta?')) return;
-    setPhoneBusy(true);
-    setPhoneError('');
-    try {
-      setPhoneRecipients(await window.electronAPI.phoneRecipients.delete(recipientId));
-    } catch (error) {
-      setPhoneError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPhoneBusy(false);
     }
   }
 
@@ -302,91 +223,6 @@ export default function Settings() {
             </button>
           </div>}
           {cloudError && <p className="text-sm text-red-400">{cloudError}</p>}
-        </SettingsSection>
-
-        <SettingsSection title="Contactos de alerta">
-          {cloudStatus.state !== 'ENROLLED' ? (
-            <div className="rounded-lg border border-gray-800 px-3 py-2 text-sm text-gray-500">
-              Vincula la instalación primero
-            </div>
-          ) : <>
-            <p className="text-xs leading-5 text-gray-500">
-               Añade hasta 100 contactos para las alertas por WhatsApp. Los números completos se guardan cifrados
-              en este equipo; después de capturarlos, esta pantalla y los listados sólo reciben la máscara.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <input type="text" value={contactName} placeholder="Nombre del contacto"
-                maxLength={100}
-                onChange={event => setContactName(event.target.value)}
-                className="min-w-0 rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm focus:border-security-500 focus:outline-none" />
-              <input type="tel" value={phoneNumber} placeholder="+34123456789"
-                onChange={event => setPhoneNumber(event.target.value)}
-                onKeyDown={event => { if (event.key === 'Enter') void requestPhoneCode(); }}
-                className="min-w-0 rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm focus:border-security-500 focus:outline-none" />
-              <button onClick={requestPhoneCode} disabled={phoneBusy || !contactName.trim() || !phoneNumber.trim()}
-                className="rounded bg-security-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 sm:col-span-2">
-                Enviar código
-              </button>
-            </div>
-
-            {phoneRecipients.length === 0 && (
-              <p className="rounded-lg border border-dashed border-gray-800 px-3 py-4 text-center text-sm text-gray-500">
-                No hay contactos de alerta configurados
-              </p>
-            )}
-
-            {phoneRecipients.map(recipient => recipient.state === 'pending' ? (
-              <div key={recipient.challengeId} className="space-y-2 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-200">{recipient.contactName}</p>
-                    <p className="font-mono text-xs text-gray-400">{recipient.phoneMask}</p>
-                  </div>
-                  <span className="text-xs font-medium text-amber-400">Pendiente</span>
-                </div>
-                {recipient.developmentCode && (
-                  <p className="text-xs text-amber-300">Código de desarrollo: <span className="font-mono">{recipient.developmentCode}</span></p>
-                )}
-                <div className="flex gap-2">
-                  <input inputMode="numeric" maxLength={6} value={verificationCodes[recipient.challengeId!] ?? ''}
-                    placeholder="Código de 6 dígitos"
-                    onChange={event => setVerificationCodes(current => ({
-                      ...current,
-                      [recipient.challengeId!]: event.target.value.replace(/\D/g, '').slice(0, 6),
-                    }))}
-                    className="min-w-0 flex-1 rounded border border-gray-700 bg-gray-800 px-3 py-2 text-sm focus:border-security-500 focus:outline-none" />
-                  <button onClick={() => void confirmPhoneCode(recipient.challengeId!)}
-                    disabled={phoneBusy || (verificationCodes[recipient.challengeId!] ?? '').length !== 6}
-                    className="rounded bg-green-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
-                    Verificar
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div key={recipient.recipientId} className="space-y-2 rounded-lg border border-gray-800 bg-gray-950/40 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-200">{recipient.contactName}</p>
-                    <p className="font-mono text-xs text-gray-400">{recipient.phoneMask}</p>
-                    <p className={`text-xs ${recipient.requiresReverification ? 'text-amber-400' : recipient.enabled ? 'text-green-400' : 'text-gray-500'}`}>
-                      {recipient.requiresReverification
-                        ? 'Requiere verificar nuevamente'
-                        : recipient.enabled ? 'Activo para alertas' : 'Desactivado'}
-                    </p>
-                  </div>
-                  {!recipient.requiresReverification && (
-                    <SettingToggle label="" checked={recipient.enabled ?? false}
-                      onChange={enabled => void setRecipientEnabled(recipient.recipientId!, enabled)} />
-                  )}
-                </div>
-                <button onClick={() => void removeRecipient(recipient.recipientId!)} disabled={phoneBusy}
-                  className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50">
-                  Eliminar contacto
-                </button>
-              </div>
-            ))}
-            {phoneError && <p className="text-sm text-red-400">{phoneError}</p>}
-          </>}
         </SettingsSection>
 
         <SettingsSection title="📷 Cámaras">

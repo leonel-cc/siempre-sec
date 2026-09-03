@@ -3,7 +3,7 @@ import { CurrentInstallation, CurrentUserParam, DeviceAuth, Public, Roles } from
 import { CurrentUser } from '../auth/auth.types';
 import { Installation, MembershipRole } from '../entities/entities';
 import { Throttle } from '@nestjs/throttler';
-import { ConfirmPhoneVerificationDto, RequestPhoneVerificationDto } from './phone.dto';
+import { ConfirmPhoneVerificationDto, RequestPhoneVerificationDto, TestPhoneRecipientDto } from './phone.dto';
 import { PhoneVerificationService } from './phone-verification.service';
 
 @Public()
@@ -37,6 +37,16 @@ export class DevicePhoneRecipientsController {
   @Post(':recipientId/deactivate')
   deactivate(@CurrentInstallation() installation: Installation, @Param('recipientId', ParseUUIDPipe) recipientId: string) {
     return this.verification.setEnabledByInstallation(installation, recipientId, false);
+  }
+
+  @Post(':recipientId/test')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  test(
+    @CurrentInstallation() installation: Installation,
+    @Param('recipientId', ParseUUIDPipe) recipientId: string,
+    @Body() dto: TestPhoneRecipientDto,
+  ) {
+    return this.verification.sendTestByInstallation(installation, recipientId, dto);
   }
 
   @Delete(':recipientId')

@@ -9,6 +9,7 @@ import Rules from './pages/Rules';
 import Settings from './pages/Settings';
 import SystemStatus from './pages/SystemStatus';
 import Monitor from './pages/Monitor';
+import Alerts from './pages/Alerts';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/monitor" element={<Monitor />} />
         <Route path="/cameras" element={<Cameras />} />
         <Route path="/events" element={<Events />} />
+        <Route path="/alerts" element={<Alerts />} />
         <Route path="/people" element={<People />} />
         <Route path="/zones" element={<Zones />} />
         <Route path="/rules" element={<Rules />} />

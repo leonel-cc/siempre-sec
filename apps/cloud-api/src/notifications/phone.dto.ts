@@ -24,3 +24,9 @@ export class ConfirmPhoneVerificationDto {
   @Matches(/^\d{6}$/)
   code: string;
 }
+
+export class TestPhoneRecipientDto {
+  @IsString()
+  @MaxLength(40)
+  phone: string;
+}

@@ -243,6 +243,19 @@ export function deletePhoneRecipient(recipientId: string): Promise<PhoneRecipien
   });
 }
 
+export function sendTestPhoneAlert(recipientId: string): Promise<{ sent: true; messageId: string | null }> {
+  return serializePhoneStoreOperation(async () => {
+    const recipient = currentStore().verified.find(item => item.recipientId === recipientId);
+    if (!recipient?.phone || !E164.test(recipient.phone) || !recipient.enabled || recipient.requiresReverification) {
+      throw new Error('El contacto debe estar verificado y activo para enviar una prueba');
+    }
+    return deviceRequest<{ sent: true; messageId: string | null }>(
+      `/v1/installations/me/whatsapp-recipients/${encodeURIComponent(recipientId)}/test`,
+      { method: 'POST', body: { phone: recipient.phone } },
+    );
+  });
+}
+
 export function clearPhoneRecipients(): Promise<void> {
   return serializePhoneStoreOperation(async () => removeSecureFile(STORAGE_FILE));
 }

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('phone-recipients:confirm', challengeId, code),
     setEnabled: (recipientId: string, enabled: boolean) =>
       ipcRenderer.invoke('phone-recipients:set-enabled', recipientId, enabled),
+    sendTest: (recipientId: string) => ipcRenderer.invoke('phone-recipients:test', recipientId),
     delete: (recipientId: string) => ipcRenderer.invoke('phone-recipients:delete', recipientId),
   },
   getDesktopPreferences: () => ipcRenderer.invoke('desktop-preferences:get'),

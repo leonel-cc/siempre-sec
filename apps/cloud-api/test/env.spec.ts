@@ -44,6 +44,28 @@ describe('cloud environment validation', () => {
 });
 
 describe('phone fingerprint environment policy', () => {
+  it('allows hello_world demo mode only in development', () => {
+    expect(validateEnvironment({
+      DATABASE_URL: 'postgresql://localhost/test',
+      NODE_ENV: 'development',
+      DEV_AUTH_ENABLED: 'true',
+      WHATSAPP_ENABLED: 'true',
+      WHATSAPP_ACCESS_TOKEN: 'token',
+      WHATSAPP_PHONE_NUMBER_ID: 'phone-id',
+      WHATSAPP_DEMO_TEMPLATE_NAME: 'hello_world',
+    }).WHATSAPP_DEMO_TEMPLATE_NAME).toBe('hello_world');
+  });
+
+  it('rejects hello_world demo mode outside development', () => {
+    expect(() => validateEnvironment({
+      ...baseEnvironment,
+      ...enabledWhatsApp,
+      NODE_ENV: 'production',
+      WHATSAPP_DEMO_TEMPLATE_NAME: 'hello_world',
+      PHONE_FINGERPRINT_SECRET: 'x'.repeat(32),
+    })).toThrow('WHATSAPP_DEMO_TEMPLATE_NAME is allowed only in development');
+  });
+
   it('requires a strong fingerprint secret in production', () => {
     expect(() => validateEnvironment({
       ...baseEnvironment,

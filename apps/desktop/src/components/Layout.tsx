@@ -5,6 +5,7 @@ const navItems = [
   { to: '/monitor', label: 'Monitoreo', icon: '🖥️' },
   { to: '/cameras', label: 'Cámaras', icon: '📷' },
   { to: '/events', label: 'Eventos', icon: '🔔' },
+  { to: '/alerts', label: 'Alertas', icon: '📱' },
   { to: '/people', label: 'Personas', icon: '👤' },
   { to: '/zones', label: 'Zonas', icon: '🗺️' },
   { to: '/rules', label: 'Reglas', icon: '⚙️' },
